@@ -1,0 +1,192 @@
+@import "tailwindcss";
+
+:root {
+  /* Central Brand Design Tokens */
+  --brand-primary: #1e3a8a;
+  --brand-primary-hover: #172554;
+  --brand-primary-text: #FFFFFF;
+
+  --brand-secondary: #475569;
+  --brand-secondary-hover: #334155;
+  --brand-secondary-text: #FFFFFF;
+
+  --brand-accent: #d97706;
+  --brand-accent-text: #FFFFFF;
+
+  /* Button Tokens */
+  --button-primary-bg: #1e3a8a;
+  --button-primary-text: #FFFFFF;
+  --button-primary-hover: #172554;
+  --button-primary-border: #1e3a8a;
+
+  --button-secondary-bg: #475569;
+  --button-secondary-text: #FFFFFF;
+  --button-secondary-hover: #334155;
+  --button-secondary-border: #475569;
+
+  --button-danger-bg: #dc2626;
+  --button-danger-text: #FFFFFF;
+  --button-danger-hover: #b91c1c;
+
+  --button-success-bg: #16a34a;
+  --button-success-text: #FFFFFF;
+
+  --button-outline-bg: transparent;
+  --button-outline-text: #1e3a8a;
+  --button-outline-border: #1e3a8a;
+  --button-outline-hover: rgba(30, 58, 138, 0.1);
+
+  /* Application Surface Tokens */
+  --app-background: #000000;
+  --sidebar-background: #09090B;
+  --header-background: #0D0D0E;
+  --card-background: #0D0D0E;
+  --panel-background: #141416;
+  --input-background: #000000;
+  --modal-background: #121214;
+  --border-color: #27272A;
+  --text-primary: #FFFFFF;
+  --text-secondary: #A1A1AA;
+}
+
+@layer base {
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    background-color: var(--app-background);
+    color: var(--text-primary);
+  }
+}
+
+.tabular-nums {
+  font-variant-numeric: tabular-nums;
+  font-feature-settings: 'tnum';
+}
+
+/* Centralized Button Token Classes */
+.btn-primary {
+  background-color: var(--button-primary-bg) !important;
+  color: var(--button-primary-text) !important;
+  border-color: var(--button-primary-border, var(--button-primary-bg)) !important;
+  transition: all 0.15s ease-in-out;
+}
+.btn-primary:hover:not(:disabled) {
+  background-color: var(--button-primary-hover) !important;
+}
+
+.btn-secondary {
+  background-color: var(--button-secondary-bg) !important;
+  color: var(--button-secondary-text) !important;
+  border-color: var(--button-secondary-border, var(--button-secondary-bg)) !important;
+  transition: all 0.15s ease-in-out;
+}
+.btn-secondary:hover:not(:disabled) {
+  background-color: var(--button-secondary-hover) !important;
+}
+
+.btn-outline {
+  background-color: var(--button-outline-bg) !important;
+  color: var(--button-outline-text) !important;
+  border-color: var(--button-outline-border) !important;
+  border-width: 1px;
+  border-style: solid;
+  transition: all 0.15s ease-in-out;
+}
+.btn-outline:hover:not(:disabled) {
+  background-color: var(--button-outline-hover) !important;
+}
+
+.btn-danger {
+  background-color: var(--button-danger-bg) !important;
+  color: var(--button-danger-text) !important;
+  transition: all 0.15s ease-in-out;
+}
+.btn-danger:hover:not(:disabled) {
+  background-color: var(--button-danger-hover) !important;
+}
+
+.btn-success {
+  background-color: var(--button-success-bg) !important;
+  color: var(--button-success-text) !important;
+  transition: all 0.15s ease-in-out;
+}
+
+/* Brand Utility Classes */
+.bg-brand-primary {
+  background-color: var(--brand-primary) !important;
+}
+.text-brand-primary {
+  color: var(--brand-primary) !important;
+}
+.border-brand-primary {
+  border-color: var(--brand-primary) !important;
+}
+
+.bg-brand-secondary {
+  background-color: var(--brand-secondary) !important;
+}
+.text-brand-secondary {
+  color: var(--brand-secondary) !important;
+}
+.border-brand-secondary {
+  border-color: var(--brand-secondary) !important;
+}
+
+.bg-brand-accent {
+  background-color: var(--brand-accent) !important;
+}
+.text-brand-accent {
+  color: var(--brand-accent) !important;
+}
+.border-brand-accent {
+  border-color: var(--brand-accent) !important;
+}
+
+/* Surface Utility Classes */
+.bg-app {
+  background-color: var(--app-background) !important;
+}
+.bg-sidebar {
+  background-color: var(--sidebar-background) !important;
+}
+.bg-card-surface {
+  background-color: var(--card-background) !important;
+}
+.bg-panel-surface {
+  background-color: var(--panel-background) !important;
+}
+.border-app {
+  border-color: var(--border-color) !important;
+}
+
+/* Custom scrollbars for Dark & Light modes */
+.dark ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.dark ::-webkit-scrollbar-track {
+  background: #000000;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background: #27272a;
+  border-radius: 4px;
+}
+.dark ::-webkit-scrollbar-thumb:hover {
+  background: #3f3f46;
+}
+
+.light ::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+.light ::-webkit-scrollbar-track {
+  background: #ffffff;
+}
+.light ::-webkit-scrollbar-thumb {
+  background: #d4d4d8;
+  border-radius: 4px;
+}
+.light ::-webkit-scrollbar-thumb:hover {
+  background: #a1a1aa;
+}

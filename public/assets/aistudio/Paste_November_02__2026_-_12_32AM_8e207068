@@ -1,0 +1,1202 @@
+# PeopleDesk Studio — Complete Attendance Management System
+## Full Implementation: Navigation, Customization, Fingerprint Integration, Holiday Calendar, Employee Tracking, LOP and Payroll Automation
+
+Act as a senior HRMS architect, full-stack developer, payroll specialist, biometric attendance integration engineer and database architect.
+
+I want to implement a complete, professional and highly customizable Attendance Management System inside my existing PeopleDesk Studio Windows application.
+
+This is a major application feature, not just a simple attendance page.
+
+The system must track every employee's attendance, connect to fingerprint machines, support manual HR attendance entries, manage annual holidays and weekly offs, calculate LOP, manage Sunday and holiday extra work, and automatically feed approved attendance information into the correct employee's payroll and payslip.
+
+IMPORTANT: Inspect the existing project architecture before making changes.
+
+Do not rebuild the application from scratch.
+
+Do not remove existing functionality.
+
+Do not delete or overwrite existing employee, payroll, payslip or attendance data.
+
+---
+
+# PART 1 — CONFIRMED BUSINESS AND TECHNICAL REQUIREMENTS
+
+The following requirements are confirmed.
+
+### Deployment architecture
+- One existing HR computer acts as the central server.
+- Multiple HR computers connect to that server over the office LAN.
+- PostgreSQL is the central database.
+- All HR computers share the same company data.
+- Attendance and payroll must continue working when internet access is unavailable.
+- Internet should only be required for services that genuinely need it, such as license activation and updates.
+- Fingerprint devices should connect through the central server wherever their supported protocols permit.
+
+### Attendance requirements
+- Individual employee attendance tracking.
+- Daily, weekly, monthly, yearly and custom-date reports.
+- Fingerprint machine integration.
+- Manual attendance entry.
+- CSV and Excel attendance import.
+- Employee-specific attendance history.
+- HR corrections and approval.
+- Custom shifts, weekly offs and holidays.
+- Annual holiday calendar.
+- Sunday and holiday extra work detection.
+- Manual extra working day entry with proof upload.
+
+### Payroll requirements
+- Fixed monthly salary is the standard salary method.
+- LOP deductions are calculated using approved attendance.
+- LOP calculation basis must be configurable.
+- Sundays and declared holidays are not automatically LOP.
+- Approved extra working days are tracked separately.
+- HR decides compensation separately for each approved extra working day.
+- Approved attendance must feed into the correct employee's payroll and payslip.
+- Finalized payroll must not be silently modified.
+
+---
+
+# PART 2 — MOVE ATTENDANCE MANAGEMENT TO THE UPPER SIDEBAR
+
+Modify the existing sidebar.
+
+Move Attendance Management from Network & Administration into the upper Payroll Workspace section.
+
+Place it directly below Employee Database and above Import & Map.
+
+The final sidebar structure should be:
+
+## PAYROLL WORKSPACE
+
+1. Dashboard
+2. Employee Database
+3. Attendance Management
+4. Import & Map
+5. Payroll Batch
+6. Math & Validation
+7. Payslip Generator
+8. Export Center
+9. Generation History
+10. Layout Customizer
+11. Email Delivery
+12. Company Settings
+
+## NETWORK & ADMINISTRATION
+
+1. Server Management
+2. Client Connection
+3. User Management
+4. Backup & Restore
+5. License Management
+
+Keep all existing navigation identifiers working wherever possible.
+
+Make sure selecting Attendance Management opens the actual attendance page in the main content area.
+
+Do not create a blank page or placeholder.
+
+Preserve the existing PeopleDesk Studio design system, navigation styling, typography, themes and responsive desktop layout.
+
+---
+
+# PART 3 — ATTENDANCE MANAGEMENT MAIN DASHBOARD
+
+Create a professional attendance dashboard.
+
+At the top, provide:
+
+- Current date.
+- Reporting period selector.
+- Department filter.
+- Designation filter.
+- Shift filter.
+- Employee filter.
+- Attendance status filter.
+- Custom date range.
+
+Display the following live statistics:
+
+- Total active employees.
+- Present today.
+- Absent today.
+- Employees on paid leave.
+- Employees on unpaid leave.
+- Late arrivals.
+- Early departures.
+- Missing punches.
+- Pending attendance approvals.
+- Employees working overtime.
+- Employees working on Sundays or holidays.
+
+All statistics must come from the actual central database.
+
+Do not use fabricated production data.
+
+Add useful visualizations:
+- Daily attendance distribution.
+- Weekly attendance trend.
+- Monthly attendance percentage.
+- Department-wise attendance.
+- Late arrival trend.
+- Overtime trend.
+- Absence and LOP trend.
+
+Provide useful tables with employee-level details.
+
+Every statistic card should be clickable and open the corresponding filtered records.
+
+---
+
+# PART 4 — COMPLETE ATTENDANCE NAVIGATION
+
+Inside Attendance Management, create the following sections or tabs:
+
+1. Attendance Dashboard
+2. Daily Attendance
+3. Weekly Attendance
+4. Monthly Attendance
+5. Yearly Attendance
+6. Employee Attendance
+7. Attendance Devices
+8. Import Attendance
+9. Attendance Approvals
+10. Holiday Calendar & Weekly Offs
+11. Extra Working Days
+12. Attendance Rules & Settings
+13. Attendance Reports
+14. Attendance Audit History
+
+Each section must have a working page.
+
+Do not leave any section blank.
+
+---
+
+# PART 5 — DAILY ATTENDANCE MANAGEMENT
+
+Create a detailed daily attendance register.
+
+Display:
+
+- Employee ID.
+- Employee name.
+- Employee photo if available.
+- Department.
+- Designation.
+- Assigned shift.
+- Attendance date.
+- Check-in time.
+- Check-out time.
+- Break duration.
+- Total working hours.
+- Late arrival duration.
+- Early departure duration.
+- Overtime hours.
+- Attendance status.
+- Attendance source.
+- Approval status.
+- HR remarks.
+
+Attendance statuses must support:
+
+- Present.
+- Absent.
+- Half day.
+- Paid leave.
+- Unpaid leave.
+- Weekly off.
+- Public holiday.
+- Company holiday.
+- Missing punch.
+- Pending review.
+- Extra work candidate.
+
+Allow HR to:
+
+- Search employees.
+- Filter records.
+- View employee details.
+- Add attendance manually.
+- Edit attendance with permission.
+- Correct missing punches.
+- Approve or reject corrections.
+- Export filtered attendance.
+
+Every correction must have a reason and an audit record.
+
+---
+
+# PART 6 — WEEKLY, MONTHLY AND YEARLY TRACKING
+
+## Weekly attendance
+
+Show:
+- Employee-wise weekly attendance.
+- Working days.
+- Present days.
+- Absent days.
+- Paid leave.
+- Unpaid leave.
+- Weekly offs.
+- Holidays.
+- Late arrivals.
+- Early departures.
+- Total working hours.
+- Overtime.
+
+## Monthly attendance
+
+Create a complete monthly attendance register.
+
+Show:
+- Calendar-style employee attendance.
+- Date-wise status.
+- Present days.
+- Absent days.
+- Paid leave.
+- Unpaid leave.
+- Weekly offs.
+- Holidays.
+- Half days.
+- Missing punches.
+- LOP days.
+- Overtime.
+
+Allow month and year selection.
+
+## Yearly attendance
+
+Show:
+- Month-by-month attendance summary.
+- Annual present days.
+- Annual absences.
+- Annual paid leave.
+- Annual unpaid leave.
+- Annual LOP.
+- Annual overtime.
+- Annual extra working days.
+- Attendance percentage.
+- Late arrival totals.
+- Employee attendance trend.
+
+Allow custom reporting periods.
+
+All historical data must remain accessible.
+
+---
+
+# PART 7 — INDIVIDUAL EMPLOYEE ATTENDANCE PROFILE
+
+Integrate attendance directly into the existing Employee Database profile.
+
+Add an Attendance tab inside each employee's profile.
+
+HR must be able to open any employee and view:
+
+- Weekly attendance.
+- Monthly attendance.
+- Yearly attendance.
+- Custom date-range attendance.
+- Daily check-in and check-out history.
+- Total working hours.
+- Late arrivals.
+- Early departures.
+- Overtime.
+- Present days.
+- Absent days.
+- Paid leave.
+- Unpaid leave.
+- LOP days.
+- Weekly offs.
+- Holidays.
+- Extra working days.
+- Sunday work.
+- Holiday work.
+- Attendance corrections.
+- Approval history.
+
+Add charts and downloadable reports.
+
+Use Employee ID as the primary employee reference.
+
+Never rely only on employee names for attendance matching.
+
+Do not delete historical attendance when an employee resigns or becomes inactive.
+
+---
+
+# PART 8 — FINGERPRINT MACHINE INTEGRATION
+
+Create a dedicated section:
+
+ATTENDANCE DEVICES
+
+This must contain a visible Add Device button.
+
+I need a practical interface to connect fingerprint machines to PeopleDesk Studio.
+
+## Device setup wizard
+
+### Step 1 — Manufacturer
+
+Provide:
+- ZKTeco.
+- eSSL.
+- Realtime.
+- Matrix.
+- Other.
+
+### Step 2 — Device information
+
+Fields:
+- Device name.
+- Manufacturer.
+- Model number.
+- Serial number.
+- IP address.
+- Port.
+- Communication protocol.
+- Device location.
+- Username if required.
+- Password or authentication details if required.
+
+Never expose device credentials in logs or frontend responses.
+
+### Step 3 — Connection method
+
+Support architecture for:
+
+- LAN/TCP-IP.
+- Manufacturer SDK.
+- Manufacturer API.
+- Supported device push protocol.
+- CSV import.
+- Excel import.
+
+### Step 4 — Connection testing
+
+Provide:
+- Test connection.
+- Connection result.
+- Device identification.
+- Error messages.
+- Troubleshooting guidance.
+
+### Step 5 — Employee mapping
+
+Map the fingerprint machine's employee ID to the PeopleDesk Studio employee ID.
+
+Prevent incorrect employee mappings.
+
+Support multiple devices.
+
+### Step 6 — Synchronization
+
+Provide:
+- Manual sync.
+- Scheduled sync.
+- Last synchronization.
+- Synchronization history.
+- Failed record count.
+- Duplicate record count.
+- Error logs.
+
+## Device dashboard
+
+Display:
+- Device name.
+- Manufacturer.
+- Model.
+- IP address.
+- Connection status.
+- Last sync.
+- Number of imported punches.
+- Failed synchronization records.
+
+Allow:
+- Add device.
+- Edit device.
+- Disable device.
+- Delete device with confirmation.
+- Test connection.
+- Sync now.
+- View device logs.
+
+## Important compatibility requirements
+
+Build a modular adapter architecture.
+
+Do not claim that every ZKTeco, eSSL, Realtime or Matrix device is compatible.
+
+Actual compatibility depends on the specific model, firmware, protocol and available manufacturer SDK/API.
+
+Inspect available integration methods before implementing a direct connection.
+
+If an SDK or protocol is unavailable, clearly explain the limitation and support CSV/Excel import as a fallback.
+
+The central HR server should manage synchronization wherever supported.
+
+Do not store fingerprint images or biometric templates.
+
+Store only necessary attendance punch events, device identifiers and synchronization metadata.
+
+---
+
+# PART 9 — CSV AND EXCEL ATTENDANCE IMPORT
+
+Create an attendance import wizard.
+
+Support:
+- CSV.
+- XLS.
+- XLSX.
+
+Features:
+
+1. Upload file.
+2. Select worksheet.
+3. Detect headers.
+4. Map columns.
+5. Map device employee IDs.
+6. Parse dates and times.
+7. Preview records.
+8. Detect duplicates.
+9. Detect invalid records.
+10. Show validation errors.
+11. Confirm import.
+12. Generate import summary.
+13. Download error report.
+
+Preserve original imported punch records.
+
+Never silently discard records.
+
+Maintain import history.
+
+---
+
+# PART 10 — ANNUAL HOLIDAY CALENDAR & WEEKLY OFFS
+
+Create a dedicated section:
+
+HOLIDAY CALENDAR & WEEKLY OFFS
+
+HR/Admin must manage the company's annual holiday calendar.
+
+Allow:
+
+- Select calendar year.
+- Add holiday.
+- Edit holiday.
+- Delete holiday with confirmation.
+- Import holiday calendar from Excel.
+- Export holiday calendar.
+- Copy previous year's calendar.
+- Add public holidays.
+- Add festival holidays.
+- Add company holidays.
+- Add special declared holidays.
+- Configure department-specific holidays.
+- Configure employee-specific holidays where necessary.
+- Publish annual calendar.
+- Revise calendar with audit history.
+
+Each holiday must store:
+
+- Date.
+- Holiday name.
+- Holiday category.
+- Description.
+- Applicable department or employees.
+- Paid/unpaid classification where applicable.
+- Created by.
+- Updated by.
+- Publication status.
+
+## Sunday and weekly-off configuration
+
+Sundays should be the default weekly off.
+
+However, HR must be able to customize weekly offs.
+
+Support:
+- Sunday off.
+- Saturday and Sunday off.
+- Alternate Saturdays.
+- Custom weekdays.
+- Employee-specific weekly offs.
+- Department-specific weekly offs.
+- Shift-based weekly offs.
+
+Weekly offs and declared company holidays must not automatically generate LOP.
+
+Preserve historical holiday calendars so that changing a future calendar does not silently alter finalized payroll.
+
+---
+
+# PART 11 — SUNDAY AND HOLIDAY EXTRA WORK DETECTION
+
+If fingerprint attendance shows that an employee worked on:
+
+- Sunday.
+- Weekly off.
+- Public holiday.
+- Company holiday.
+- Declared special holiday.
+
+Create an EXTRA WORK CANDIDATE record.
+
+Do not automatically approve it.
+
+Show:
+
+- Employee ID.
+- Employee name.
+- Date.
+- Holiday or weekly-off classification.
+- Punch-in.
+- Punch-out.
+- Recorded working hours.
+- Device source.
+- Approval status.
+
+HR must be able to:
+
+- Approve.
+- Reject.
+- Request clarification.
+- Edit with reason.
+- Upload supporting proof.
+- Add remarks.
+
+Prevent duplicate extra-work records if multiple devices record overlapping punches.
+
+---
+
+# PART 12 — MANUAL EXTRA WORK ENTRY WITH PROOF
+
+HR must be able to manually add an extra working day even when no fingerprint record exists.
+
+Create an Add Extra Working Day form.
+
+Fields:
+
+- Employee.
+- Employee ID.
+- Work date.
+- Work type: Sunday / weekly off / public holiday / company holiday.
+- Check-in time, if known.
+- Check-out time, if known.
+- Total working hours.
+- Full day or half day.
+- Reason for extra work.
+- HR remarks.
+- Supporting proof upload.
+
+Allow:
+- PDF.
+- JPG.
+- JPEG.
+- PNG.
+- Other approved document formats.
+
+Clearly label the source as HR-entered.
+
+Validate the selected date against the actual holiday and weekly-off calendar.
+
+If the selected date is not a holiday or weekly off, show a warning and require authorized confirmation.
+
+Prevent duplicate entries.
+
+Store who entered the record and when.
+
+---
+
+# PART 13 — EXTRA WORK APPROVAL WORKFLOW
+
+Support these statuses:
+
+- Pending.
+- Approved.
+- Rejected.
+- Returned for clarification.
+
+Store:
+
+- Employee ID.
+- Work date.
+- Recorded hours.
+- Proof attachments.
+- Submitted by.
+- Submission timestamp.
+- Approved/rejected by.
+- Decision timestamp.
+- Reason.
+- Audit history.
+
+Only approved records with an HR compensation decision may flow into payroll.
+
+Pending or rejected records must never affect payroll.
+
+---
+
+# PART 14 — HR-CONTROLLED EXTRA WORK COMPENSATION
+
+This requirement is confirmed:
+
+**HR decides the compensation separately for every approved extra working day.**
+
+Do not automatically assign additional payment or compensatory off.
+
+After approving extra work, show a mandatory compensation selection:
+
+1. Additional payment.
+2. Compensatory off.
+3. Both, if permitted by company policy.
+4. Record only, without compensation.
+
+For additional payment:
+- Calculate the amount using the configured company policy.
+- Allow authorized HR/payroll review.
+- Show the amount separately in payroll.
+- Do not silently modify fixed monthly salary.
+
+For compensatory off:
+- Credit the employee's compensatory-off balance.
+- Track earned, used and remaining days/hours.
+- Require approval when used.
+- Prevent duplicate use.
+- Support configurable expiry rules.
+
+For both:
+- Apply only if company policy permits it.
+
+For record only:
+- Maintain attendance history without salary or leave credit.
+
+Do not assume a universal double-pay rate.
+
+Compensation policies must be configurable and legally reviewed.
+
+---
+
+# PART 15 — ATTENDANCE RULES & FULL CUSTOMIZATION
+
+Create an extensive Attendance Rules & Settings page.
+
+Allow company administrators to customize:
+
+## Work schedule
+- Standard working hours.
+- Working days per week.
+- Weekly offs.
+- Multiple shifts.
+- Shift start and end times.
+- Break durations.
+- Shift grace periods.
+- Overnight shifts.
+- Employee shift assignments.
+- Department shift assignments.
+
+## Attendance rules
+- Minimum hours for full day.
+- Minimum hours for half day.
+- Late arrival threshold.
+- Early departure threshold.
+- Missing punch handling.
+- Punch rounding.
+- Working hours calculation.
+- Overtime eligibility.
+- Overtime rounding.
+- Holiday treatment.
+- Weekly-off treatment.
+
+## Leave rules
+- Paid leave.
+- Unpaid leave.
+- Sick leave.
+- Casual leave.
+- Earned leave.
+- Custom leave types.
+- Leave approval.
+- Leave balance integration.
+
+## Attendance-to-LOP rules
+- Full-day absence.
+- Half-day absence.
+- Approved unpaid leave.
+- Late arrival.
+- Early departure.
+- Missing punches.
+- Weekly offs.
+- Declared holidays.
+
+Allow rules to be configured at company, department, shift and employee level where appropriate.
+
+Maintain historical versions of policies.
+
+Changing a policy must not silently recalculate already finalized payroll.
+
+---
+
+# PART 16 — FIXED MONTHLY SALARY AND LOP CALCULATION
+
+The confirmed standard salary method is:
+
+FIXED MONTHLY SALARY WITH ATTENDANCE-BASED LOP DEDUCTIONS.
+
+Do not change the default salary model to daily wage or hourly wage.
+
+## LOP denominator customization
+
+Provide these configurable options:
+
+1. Calendar days in the month.
+2. Fixed 30-day basis.
+3. Configured working days.
+4. Custom company-defined denominator.
+
+Allow an authorized administrator to select the company's policy.
+
+Employee-specific overrides may be supported with permission and audit history.
+
+## Core formula
+
+LOP daily rate = Applicable monthly salary basis / Configured LOP denominator.
+
+LOP deduction = LOP daily rate × Approved LOP days.
+
+Salary after LOP = Applicable monthly salary - LOP deduction.
+
+Example:
+
+Monthly salary = ₹30,000.
+
+LOP denominator = 30.
+
+Approved LOP = 2 days.
+
+LOP daily rate = ₹1,000.
+
+LOP deduction = ₹2,000.
+
+Salary after LOP = ₹28,000 before other deductions and adjustments.
+
+The applicable salary basis must be configurable according to the company's payroll policy, such as gross salary or another approved salary component.
+
+## Important LOP rules
+
+- Approved paid leave must not generate LOP.
+- Weekly offs must not generate LOP.
+- Declared company holidays must not generate LOP.
+- Approved unpaid leave may generate LOP.
+- Absence on a scheduled working day may generate LOP.
+- Half-day absence must follow configured policy.
+- Late arrival must not automatically generate LOP unless explicitly configured.
+- Early departure must not automatically generate LOP unless explicitly configured.
+- Missing punch must be reviewed according to company rules.
+- Sunday and holiday extra work must be separately recorded.
+- Extra working days must not be counted twice.
+
+Always show the detailed LOP calculation for HR review.
+
+---
+
+# PART 17 — PAYROLL INTEGRATION
+
+This is one of the most important parts of the system.
+
+Connect approved attendance to the correct employee's payroll record using Employee ID.
+
+For every monthly payroll batch:
+
+1. Select payroll month and year.
+2. Retrieve employee-specific attendance.
+3. Retrieve applicable shift and holiday calendar.
+4. Retrieve approved leave.
+5. Retrieve approved attendance corrections.
+6. Retrieve approved extra working days.
+7. Calculate scheduled working days.
+8. Calculate present days.
+9. Calculate paid leave.
+10. Calculate unpaid leave.
+11. Calculate approved LOP.
+12. Calculate approved overtime if applicable.
+13. Calculate extra-work compensation.
+14. Calculate LOP deduction.
+15. Display employee-specific calculation breakdown.
+16. Allow authorized HR/payroll review.
+17. Finalize payroll only after approval.
+
+## Payroll attendance breakdown
+
+For every employee, show:
+
+- Calendar days.
+- Scheduled working days.
+- Weekly offs.
+- Declared holidays.
+- Present days.
+- Paid leave.
+- Unpaid leave.
+- Absent days.
+- Half days.
+- LOP days.
+- Approved extra working days.
+- Approved extra working hours.
+- Overtime.
+- Additional payment.
+- Compensatory off earned.
+- Compensatory off used.
+- LOP deduction.
+- Gross salary.
+- Other deductions.
+- Net salary.
+
+Do not silently overwrite manually entered payroll values.
+
+If attendance data changes after payroll is finalized, require an authorized adjustment or payroll revision workflow.
+
+Maintain payroll snapshots so finalized payslips remain historically accurate.
+
+---
+
+# PART 18 — PAYSLIP INTEGRATION
+
+Connect attendance information to the existing Payslip Generator and Layout Customizer.
+
+Allow HR to configure which attendance fields appear on the payslip.
+
+Potential fields:
+
+- Total working days.
+- Present days.
+- Paid leave.
+- Unpaid leave.
+- LOP days.
+- LOP deduction.
+- Overtime hours.
+- Overtime payment.
+- Approved extra working days.
+- Additional holiday/Sunday work payment.
+- Other configured attendance earnings.
+
+Provide show/hide controls and field ordering in the existing Layout Customizer.
+
+The payslip must use the finalized employee-specific payroll snapshot.
+
+The downloaded PDF and preview must show matching attendance and salary figures.
+
+Preserve existing PDF generation and company branding.
+
+---
+
+# PART 19 — EMPLOYEE ATTENDANCE REPORTS
+
+Create detailed reports:
+
+- Daily attendance.
+- Weekly attendance.
+- Monthly attendance.
+- Yearly attendance.
+- Department-wise attendance.
+- Employee attendance history.
+- Late arrival report.
+- Early departure report.
+- Absence report.
+- LOP report.
+- Overtime report.
+- Sunday work report.
+- Holiday work report.
+- Extra working day report.
+- Missing punch report.
+- Attendance correction report.
+- Device synchronization report.
+- Compensatory-off balance report.
+
+Allow:
+- Search.
+- Filtering.
+- Sorting.
+- Date-range selection.
+- Excel export.
+- CSV export.
+- PDF export where appropriate.
+
+All reports must use real database records.
+
+---
+
+# PART 20 — CENTRAL DATABASE AND DATA INTEGRITY
+
+Inspect the existing PostgreSQL schema before making database changes.
+
+Reuse existing tables where possible.
+
+Create or modify tables only when required.
+
+Potential entities:
+
+- Attendance devices.
+- Device configuration.
+- Device employee ID mapping.
+- Raw punch events.
+- Attendance daily summaries.
+- Attendance corrections.
+- Attendance approvals.
+- Shift definitions.
+- Shift assignments.
+- Weekly-off rules.
+- Annual holiday calendars.
+- Holiday dates.
+- Employee calendar assignments.
+- Leave records.
+- Attendance policies.
+- Extra-work records.
+- Extra-work proof documents.
+- Extra-work approvals.
+- Compensation policies.
+- Compensatory-off transactions.
+- Payroll attendance snapshots.
+- Device synchronization logs.
+
+Use:
+- Correct foreign keys.
+- Employee ID relationships.
+- Indexing.
+- Transaction safety.
+- Duplicate detection.
+- Versioning where necessary.
+- Audit logging.
+- Database migrations.
+
+Preserve all historical attendance and payroll data.
+
+Do not use a shared SQLite database file on a network share.
+
+Use the existing central PostgreSQL server.
+
+---
+
+# PART 21 — MULTI-USER PERMISSIONS AND AUDIT
+
+Use the existing authentication and RBAC implementation.
+
+Administrator:
+- Full access.
+- Configure rules.
+- Manage devices.
+- Manage holiday calendars.
+- Approve attendance.
+- Approve extra work.
+- Configure compensation policies.
+
+HR:
+- View employee attendance.
+- Add and correct attendance.
+- Manage holiday calendars according to permissions.
+- Upload supporting proof.
+- Submit and approve assigned records according to permissions.
+
+Payroll:
+- View approved attendance.
+- Review LOP calculations.
+- Review extra-work compensation.
+- Integrate attendance into payroll.
+- Finalize payroll according to permissions.
+
+Read-only:
+- View permitted attendance and reports.
+- No changes.
+
+Enforce permissions in backend APIs, not only in the frontend.
+
+Maintain a complete audit history for attendance and payroll changes.
+
+---
+
+# PART 22 — USER INTERFACE AND EXPERIENCE
+
+Maintain the existing PeopleDesk Studio visual identity.
+
+Create a polished, professional desktop HRMS experience.
+
+Use:
+- Clean navigation.
+- Consistent page headers.
+- Clear dashboard cards.
+- Professional tables.
+- Calendar views.
+- Useful filters.
+- Readable attendance status indicators.
+- Responsive layouts.
+- Existing light and dark themes.
+- Existing typography and spacing system.
+
+Provide useful empty, loading, error and success states.
+
+Every button must perform an actual action or clearly show why the action is unavailable.
+
+Do not create decorative buttons.
+
+Do not display fake device connection success.
+
+Do not display fake employee attendance or payroll figures.
+
+If the server is unavailable in browser preview, display a clear server connection state.
+
+If demo mode is needed, label all demo data visibly as DEMO and never mix it with production records.
+
+---
+
+# PART 23 — TESTING AND VERIFICATION
+
+Add automated tests for:
+
+### Attendance
+- Daily attendance calculations.
+- Weekly summaries.
+- Monthly summaries.
+- Yearly summaries.
+- Employee ID mapping.
+- Multiple shifts.
+- Overnight shifts.
+- Missing punches.
+- Duplicate punches.
+- Manual attendance corrections.
+
+### Holiday management
+- Sunday weekly-off detection.
+- Public holiday handling.
+- Company holiday handling.
+- Custom weekly offs.
+- Historical calendar preservation.
+
+### Extra working days
+- Fingerprint-recorded Sunday work.
+- Fingerprint-recorded holiday work.
+- Manual extra work.
+- Proof upload.
+- Approval and rejection.
+- Duplicate prevention.
+- Compensation selection.
+- Compensatory-off balance.
+
+### Payroll
+- LOP calculation.
+- Calendar-day denominator.
+- Fixed 30-day denominator.
+- Working-day denominator.
+- Custom denominator.
+- Paid leave exclusion.
+- Weekly-off exclusion.
+- Holiday exclusion.
+- Half-day calculation.
+- Approved unpaid leave.
+- Additional holiday payment.
+- Compensatory off.
+- Payroll locking.
+- Payroll revision.
+- Payslip accuracy.
+
+### Multi-user
+- Role permissions.
+- Concurrent attendance edits.
+- Concurrent approvals.
+- Audit history.
+- Server disconnection.
+- Internet outage with LAN operation.
+
+Run all existing tests and ensure existing employee, payroll and payslip features continue to work.
+
+---
+
+# PART 24 — IMPLEMENTATION STRATEGY
+
+Do not implement everything in one uncontrolled change.
+
+First audit the project.
+
+Identify:
+- Existing employee data model.
+- Existing payroll calculation engine.
+- Existing payslip generation logic.
+- Existing PostgreSQL schema.
+- Existing attendance-related code.
+- Existing API endpoints.
+- Existing authentication and permissions.
+- Existing document upload service.
+- Existing navigation architecture.
+
+Then implement in stages:
+
+Phase 1: Move Attendance Management to the upper sidebar and create all attendance navigation pages.
+
+Phase 2: Attendance dashboard and daily/weekly/monthly/yearly tracking.
+
+Phase 3: Individual employee attendance profiles.
+
+Phase 4: Annual holiday calendar and weekly-off management.
+
+Phase 5: Attendance rules and full customization.
+
+Phase 6: Manual attendance and CSV/Excel import.
+
+Phase 7: Fingerprint device management and modular adapters.
+
+Phase 8: Sunday and holiday extra-work detection.
+
+Phase 9: Manual extra-work entry, proof upload and approval workflow.
+
+Phase 10: HR-controlled compensation and compensatory-off management.
+
+Phase 11: Fixed monthly salary LOP calculation engine.
+
+Phase 12: Attendance-to-payroll integration.
+
+Phase 13: Payslip integration and attendance reports.
+
+Phase 14: Security, migration, testing and verification.
+
+After each phase:
+- Run TypeScript checks.
+- Run automated tests.
+- Check the Google AI Studio preview.
+- Verify the relevant workflows.
+- Report files modified.
+- Report remaining issues.
+
+Do not claim a feature is working merely because its UI exists.
+
+Do not claim fingerprint compatibility until tested against an actual device.
+
+Do not modify finalized payroll without explicit authorized revision.
+
+Do not delete existing data.
+
+# FINAL DELIVERABLE
+
+I expect a complete Attendance Management module integrated with the existing PeopleDesk Studio application.
+
+The final result must allow HR to:
+
+1. Track every employee's attendance daily, weekly, monthly and yearly.
+2. Connect supported fingerprint machines.
+3. Import attendance from Excel and CSV.
+4. Correct attendance manually.
+5. Manage annual holidays and Sundays.
+6. Detect employees working on Sundays and holidays.
+7. Manually enter extra working days with proof.
+8. Approve or reject extra work.
+9. Decide compensation separately for each approved extra working day.
+10. Calculate fixed monthly salary with attendance-based LOP.
+11. Transfer approved attendance directly to the correct employee's payroll.
+12. Generate accurate payslips with attendance breakdowns.
+13. Access historical attendance whenever required.
+
+FIRST ACTION:
+
+Perform a read-only technical audit and return a detailed implementation plan with exact source files, database tables, API endpoints, payroll functions and risks.
+
+Do not begin destructive database changes or payroll-engine modifications until the audit and migration strategy are reviewed.

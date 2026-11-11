@@ -1,0 +1,45 @@
+{
+  "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
+  "appId": "com.payslipstudio.app",
+  "productName": "PeopleDesk Studio",
+  "copyright": "Copyright © 2026 PeopleDesk Studio",
+  "directories": {
+    "output": "release",
+    "buildResources": "build"
+  },
+  "files": [
+    "dist/**/*",
+    "electron/**/*",
+    "package.json"
+  ],
+  "extraMetadata": {
+    "main": "electron/main.cjs"
+  },
+  "win": {
+    "target": [
+      {
+        "target": "nsis",
+        "arch": ["x64"]
+      },
+      {
+        "target": "portable",
+        "arch": ["x64"]
+      }
+    ],
+    "icon": "build/icon.ico",
+    "legalTrademarks": "PeopleDesk Studio"
+  },
+  "nsis": {
+    "oneClick": false,
+    "perMachine": false,
+    "allowToChangeInstallationDirectory": true,
+    "createDesktopShortcut": true,
+    "createStartMenuShortcut": true,
+    "shortcutName": "PeopleDesk Studio",
+    "uninstallDisplayName": "PeopleDesk Studio",
+    "deleteAppDataOnUninstall": false
+  },
+  "portable": {
+    "artifactName": "PeopleDeskStudio-Portable-${version}.exe"
+  }
+}
