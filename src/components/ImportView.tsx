@@ -195,6 +195,24 @@ export const ImportView: React.FC<ImportViewProps> = ({
       setFileName(name);
       setSelectedHeaderRow(headerRowIndex);
 
+      // Upload file to import-files bucket via backend storage API
+      try {
+        const fileObj = new File([new Uint8Array(buffer)], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        const formData = new FormData();
+        formData.append('file', fileObj);
+        formData.append('year', String(new Date().getFullYear()));
+        formData.append('month', new Date().toLocaleString('default', { month: 'long' }));
+
+        await fetch('/api/storage/upload/import-files', {
+          method: 'POST',
+          headers: token ? { Authorization: `Bearer ${token}` } : {},
+          body: formData
+        });
+      } catch (uploadErr) {
+        console.warn('[Storage] Import file cloud upload skipped or offline:', uploadErr);
+      }
+
       const parsed = parseExcelFile(buffer, name, headerRowIndex);
       setParsedWb(parsed);
 

@@ -11,6 +11,7 @@ import documentRoutes from './routes/documents';
 import backupRoutes from './routes/backup';
 import attendanceRoutes from './routes/attendance';
 import licenseRoutes from './routes/license';
+import storageRoutes from './routes/storage';
 
 import rateLimit from 'express-rate-limit';
 
@@ -18,6 +19,8 @@ dotenv.config();
 
 const app = express();
 const PORT = process.env.PORT || 4000;
+
+app.set('trust proxy', 1);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -28,6 +31,11 @@ const apiLimiter = rateLimit({
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false,
+    forwardedHeader: false,
+    trustProxy: false,
+  },
 });
 app.use('/api/', apiLimiter);
 
@@ -39,6 +47,7 @@ app.use('/api/documents', documentRoutes);
 app.use('/api/backup', backupRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/license', licenseRoutes);
+app.use('/api/storage', storageRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -56,7 +65,24 @@ cron.schedule('0 20 * * *', () => {
   // Backup routine execution
 });
 
+function checkDeploymentEnvironment() {
+  const requiredVars = ['DATABASE_URL', 'JWT_SECRET', 'INITIAL_ADMIN_PASSWORD'];
+  const missing = requiredVars.filter(v => !process.env[v]);
+  if (missing.length > 0) {
+    console.warn(`[PeopleDesk Security] Warning: The following required environment variables are not set: ${missing.join(', ')}.`);
+  }
+
+  // SMTP is optional during initial deployment.
+  const hasSmtp = Boolean(process.env.SMTP_HOST && (process.env.SMTP_SENDER_EMAIL || process.env.SMTP_USER));
+  if (!hasSmtp) {
+    console.log('[PeopleDesk Email] Initial deployment: SMTP environment variables are not configured. Email service is unconfigured until an authorized administrator configures SMTP in Company Settings.');
+  } else {
+    console.log(`[PeopleDesk Email] Optional SMTP environment configuration detected for host: ${process.env.SMTP_HOST}`);
+  }
+}
+
 async function startServer() {
+  checkDeploymentEnvironment();
   await initializeDatabase();
 
   app.listen(Number(PORT), '0.0.0.0', () => {

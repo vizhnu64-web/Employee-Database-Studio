@@ -211,8 +211,8 @@ export const PayslipPreviewModal: React.FC<PayslipPreviewModalProps> = ({
     (layout.showLateDeduction !== false && employee.lateDeduction && employee.lateDeduction > 0)
       ? { label: layout.labelLateDeduction || 'Late Deduction', amount: employee.lateDeduction }
       : null,
-    (layout.showLopAmount !== false && employee.lopAmount && employee.lopAmount > 0)
-      ? { label: layout.labelLopAmount || 'Loss of Pay (LOP) Deduction', amount: employee.lopAmount }
+    (layout.showLopAmount !== false && Number(employee.lopAmount || employee.lopDeduction || 0) > 0)
+      ? { label: layout.labelLopAmount || 'Loss of Pay (LOP) Deduction', amount: Number(employee.lopAmount || employee.lopDeduction || 0) }
       : null,
     layout.showOtherDeductions !== false ? { label: layout.labelOtherDeductions || 'Other Deductions', amount: employee.otherDeductions || 0 } : null,
   ].filter(Boolean) as { label: string; amount: number }[];

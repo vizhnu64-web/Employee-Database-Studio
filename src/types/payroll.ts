@@ -277,6 +277,7 @@ export interface GeneratedPayslipRecord {
   generatedAt: string; // ISO string
   fileName: string;
   pdfBase64?: string;
+  pdfDataUri?: string;
 }
 
 export interface PayrollPeriod {
@@ -490,6 +491,19 @@ export interface EmailSettings {
   senderEmail: string;
   emailSubjectTemplate: string;
   emailBodyTemplate: string;
+}
+
+export interface ServerSmtpStatus {
+  isConfigured: boolean;
+  isVerified: boolean;
+  smtpHost?: string;
+  smtpPort?: number;
+  smtpUser?: string;
+  senderEmail?: string;
+  senderName?: string;
+  hasPassword?: boolean;
+  lastVerifiedAt?: string | null;
+  lastError?: string | null;
 }
 
 export const DEFAULT_EMAIL_SETTINGS: EmailSettings = {

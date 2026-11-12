@@ -15,7 +15,9 @@ import {
   Contact,
   LogOut,
   KeyRound,
-  User as UserIcon
+  User as UserIcon,
+  Server,
+  Shield
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { YearSelector } from './YearSelector';
@@ -77,6 +79,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   const { isDark } = useTheme();
   const userRole = currentUser?.role || 'admin';
+  const normalizedRole = userRole.toLowerCase();
+  const isAdmin = !currentUser || normalizedRole === 'admin' || normalizedRole === 'super_admin' || normalizedRole === 'company_admin';
 
   // Role-based visible tab definitions
   const allWorkspaceNav = [
@@ -84,7 +88,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       id: 'dashboard' as ActiveTab,
       label: 'Dashboard',
       icon: LayoutDashboard,
-      allowedRoles: ['admin', 'hr', 'payroll', 'readonly']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'hr', 'hr_manager', 'hr_executive', 'payroll', 'payroll_manager', 'payroll_executive', 'readonly']
     },
     {
       id: 'directory' as ActiveTab,
@@ -92,19 +96,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Contact,
       badge: directoryCount > 0 ? String(directoryCount) : undefined,
       badgeColor: isDark ? 'bg-[#18181B] text-[#D4D4D8]' : 'bg-[#E4E4E7] text-[#27272A]',
-      allowedRoles: ['admin', 'hr', 'readonly']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'hr', 'hr_manager', 'hr_executive', 'readonly']
     },
     {
       id: 'attendance' as ActiveTab,
       label: 'Attendance Management',
       icon: Calendar,
-      allowedRoles: ['admin', 'hr']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'hr', 'hr_manager', 'hr_executive']
     },
     {
       id: 'import' as ActiveTab,
       label: 'Import & Map',
       icon: FileSpreadsheet,
-      allowedRoles: ['admin', 'payroll']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
       id: 'records' as ActiveTab,
@@ -112,7 +116,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Users,
       badge: totalEmployees > 0 ? String(totalEmployees) : undefined,
       badgeColor: isDark ? 'bg-[#18181B] text-[#D4D4D8]' : 'bg-[#E4E4E7] text-[#27272A]',
-      allowedRoles: ['admin', 'payroll']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
       id: 'validation' as ActiveTab,
@@ -120,19 +124,19 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: CheckCircle2,
       badge: invalidCount > 0 ? String(invalidCount) : undefined,
       badgeColor: invalidCount > 0 ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30' : undefined,
-      allowedRoles: ['admin', 'payroll']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
       id: 'generator' as ActiveTab,
       label: 'Payslip Generator',
       icon: FileText,
-      allowedRoles: ['admin', 'payroll']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
       id: 'export' as ActiveTab,
       label: 'Export Center',
       icon: Archive,
-      allowedRoles: ['admin', 'payroll']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
       id: 'history' as ActiveTab,
@@ -140,29 +144,63 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: History,
       badge: historyCount > 0 ? String(historyCount) : undefined,
       badgeColor: isDark ? 'bg-[#18181B] text-[#D4D4D8]' : 'bg-[#E4E4E7] text-[#27272A]',
-      allowedRoles: ['admin', 'payroll', 'readonly']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive', 'readonly']
     },
     {
       id: 'layout' as ActiveTab,
       label: 'Layout Customizer',
       icon: Sliders,
-      allowedRoles: ['admin']
+      allowedRoles: ['admin', 'super_admin', 'company_admin']
     },
     {
       id: 'email' as ActiveTab,
       label: 'Email Delivery',
       icon: Mail,
-      allowedRoles: ['admin', 'payroll']
+      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
       id: 'settings' as ActiveTab,
       label: 'Company Settings',
       icon: Settings,
-      allowedRoles: ['admin']
+      allowedRoles: ['admin', 'super_admin', 'company_admin']
     }
   ];
 
-  const workspaceNav = allWorkspaceNav.filter(item => item.allowedRoles.includes(userRole));
+  const allAdminNav = [
+    {
+      id: 'server_admin' as ActiveTab,
+      label: 'Cloud Server Management',
+      icon: Server,
+      allowedRoles: ['admin', 'super_admin', 'company_admin']
+    },
+    {
+      id: 'client_connection' as ActiveTab,
+      label: 'Client & Workspace Access',
+      icon: Shield,
+      allowedRoles: ['admin', 'super_admin', 'company_admin']
+    },
+    {
+      id: 'users' as ActiveTab,
+      label: 'User Management',
+      icon: Users,
+      allowedRoles: ['admin', 'super_admin', 'company_admin']
+    },
+    {
+      id: 'backup' as ActiveTab,
+      label: 'Backup & Restore',
+      icon: Database,
+      allowedRoles: ['admin', 'super_admin', 'company_admin']
+    },
+    {
+      id: 'license' as ActiveTab,
+      label: 'License Management',
+      icon: KeyRound,
+      allowedRoles: ['admin', 'super_admin', 'company_admin']
+    }
+  ];
+
+  const workspaceNav = allWorkspaceNav.filter(item => isAdmin || item.allowedRoles.includes(normalizedRole));
+  const adminNav = allAdminNav.filter(item => isAdmin || item.allowedRoles.includes(normalizedRole));
 
   return (
     <>
@@ -285,6 +323,47 @@ export const Sidebar: React.FC<SidebarProps> = ({
           })}
         </div>
 
+        {/* Network & Administration Section */}
+        {adminNav.length > 0 && (
+          <div className="space-y-1 pt-3 border-t dark:border-[#222222] border-[#E4E4E7]">
+            <div
+              className={`px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider ${
+                isDark ? 'text-[#71717A]' : 'text-[#71717A]'
+              }`}
+            >
+              Network & Administration
+            </div>
+            {adminNav.map((item) => {
+              const Icon = item.icon;
+              const isActive = activeTab === item.id;
+              return (
+                <button
+                  key={item.id}
+                  onClick={() => {
+                    setActiveTab(item.id);
+                    if (onCloseMobile) onCloseMobile();
+                  }}
+                  style={isActive ? { backgroundColor: 'var(--brand-primary)', color: 'var(--brand-primary-text)' } : undefined}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition cursor-pointer ${
+                    isActive
+                      ? 'font-semibold shadow-sm'
+                      : isDark
+                      ? 'text-[#D4D4D8] hover:bg-[#141414] hover:text-white'
+                      : 'text-[#27272A] hover:bg-[#F4F4F6] hover:text-black'
+                  }`}
+                >
+                  <div className="flex items-center space-x-2.5 truncate">
+                    <Icon
+                      className={`w-4 h-4 ${isActive ? '' : isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}
+                      style={isActive ? { color: 'var(--brand-primary-text)' } : undefined}
+                    />
+                    <span className="truncate">{item.label}</span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* Bottom Payroll Period & Connection Widget */}

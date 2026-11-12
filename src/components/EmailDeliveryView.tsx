@@ -1,18 +1,21 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import {
   Mail,
   Send,
   CheckCircle2,
   AlertCircle,
+  AlertTriangle,
   Server,
   Key,
   ShieldCheck,
   RefreshCw,
   Users,
   FileText,
-  Clock
+  Settings,
+  ExternalLink,
+  Lock
 } from 'lucide-react';
-import { CompanySettings, EmployeeRecord, EmailSettings, PayslipLayoutSettings } from '../types/payroll';
+import { CompanySettings, EmployeeRecord, EmailSettings, PayslipLayoutSettings, ServerSmtpStatus } from '../types/payroll';
 import { useTheme } from '../context/ThemeContext';
 import { generatePayslipPdf } from '../utils/pdfGenerator';
 import { apiClient } from '../utils/apiClient';
@@ -25,6 +28,7 @@ interface EmailDeliveryViewProps {
   layoutSettings: PayslipLayoutSettings;
   selectedMonth: string;
   selectedYear: number;
+  onNavigateToSettings?: () => void;
 }
 
 interface SendStatus {
@@ -43,10 +47,14 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
   settings,
   layoutSettings,
   selectedMonth,
-  selectedYear
+  selectedYear,
+  onNavigateToSettings
 }) => {
   const { isDark } = useTheme();
   const [formData, setFormData] = useState<EmailSettings>({ ...emailSettings });
+  const [smtpStatus, setSmtpStatus] = useState<ServerSmtpStatus | null>(null);
+  const [isLoadingStatus, setIsLoadingStatus] = useState(true);
+
   const [isVerifying, setIsVerifying] = useState(false);
   const [verifyMessage, setVerifyMessage] = useState<{ success: boolean; text: string } | null>(null);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
@@ -55,42 +63,88 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
   const [isBulkSending, setIsBulkSending] = useState(false);
   const [showConfirmModal, setShowConfirmModal] = useState(false);
 
+  // Fetch server-side SMTP configuration status on load
+  const loadSmtpStatus = async () => {
+    setIsLoadingStatus(true);
+    try {
+      const res = await apiClient.request('/email/settings');
+      if (res.success && res.settings) {
+        setSmtpStatus({
+          isConfigured: res.isConfigured,
+          isVerified: res.isVerified,
+          ...res.settings
+        });
+      } else {
+        setSmtpStatus({ isConfigured: false, isVerified: false });
+      }
+    } catch (err: any) {
+      console.warn('[EmailDeliveryView] Failed to load server SMTP settings:', err.message);
+      setSmtpStatus({ isConfigured: false, isVerified: false });
+    } finally {
+      setIsLoadingStatus(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSmtpStatus();
+  }, []);
+
   const handleFieldChange = (field: keyof EmailSettings, value: any) => {
     setFormData(prev => ({ ...prev, [field]: value }));
   };
 
-  const handleSaveConfig = () => {
+  const handleSaveTemplates = () => {
     onSaveEmailSettings(formData);
-    setToastMessage('SMTP email configuration saved securely.');
+    setToastMessage('Email template settings saved successfully.');
     setTimeout(() => setToastMessage(null), 3000);
   };
 
   const handleVerifySmtp = async () => {
+    if (!smtpStatus?.isConfigured) {
+      setVerifyMessage({
+        success: false,
+        text: 'Email service not configured. Please configure valid SMTP settings in Company Settings first.'
+      });
+      return;
+    }
+
     setIsVerifying(true);
     setVerifyMessage(null);
 
     try {
       const res = await apiClient.request('/email/verify', {
         method: 'POST',
-        body: JSON.stringify(formData)
+        body: JSON.stringify({})
       });
       if (res.success) {
         setVerifyMessage({ success: true, text: res.message || 'SMTP server connection verified successfully.' });
+        loadSmtpStatus();
       } else {
         setVerifyMessage({ success: false, text: res.error || 'SMTP verification failed.' });
       }
     } catch (err: any) {
-      setVerifyMessage({ success: false, text: err.message || 'SMTP verification error. Please verify host, port, and credentials.' });
+      setVerifyMessage({ success: false, text: err.message || 'SMTP verification error. Check server credentials.' });
     } finally {
       setIsVerifying(false);
     }
   };
 
+  const isEmailSendingDisabled = !smtpStatus?.isConfigured || !smtpStatus?.isVerified;
+
   const handlePrepareBulkSend = () => {
+    if (isEmailSendingDisabled) {
+      setVerifyMessage({
+        success: false,
+        text: 'Email service not configured. Actual email sending is disabled until valid SMTP settings are configured and verified in Company Settings.'
+      });
+      return;
+    }
+
     if (employees.length === 0) {
       setVerifyMessage({ success: false, text: 'No employee records available to send payslips.' });
       return;
     }
+
     const initialStatuses: SendStatus[] = employees.map(emp => ({
       employeeId: emp.employeeId,
       name: emp.name,
@@ -102,6 +156,11 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
   };
 
   const handleExecuteBulkSend = async () => {
+    if (isEmailSendingDisabled) {
+      alert('Email service not configured. Configure and verify SMTP settings in Company Settings first.');
+      return;
+    }
+
     setShowConfirmModal(false);
     setIsBulkSending(true);
 
@@ -120,7 +179,7 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
       setStatuses([...updated]);
 
       try {
-        // Generate PDF buffer
+        // Generate PDF buffer client-side
         const doc = generatePayslipPdf(emp, settings, selectedMonth, selectedYear, layoutSettings);
         const pdfBase64 = doc.output('datauristring');
         const fileName = `Payslip_${emp.employeeId}_${emp.name.replace(/[^a-zA-Z0-9]/g, '_')}_${selectedMonth}_${selectedYear}.pdf`;
@@ -139,10 +198,10 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
           .replace(/{{employeeId}}/g, emp.employeeId)
           .replace(/{{companyName}}/g, settings.companyName);
 
+        // Dispatch via server-side credentials (no secrets passed in request body)
         const res = await apiClient.request('/email/send', {
           method: 'POST',
           body: JSON.stringify({
-            smtpConfig: formData,
             recipientEmail: emp.email,
             recipientName: emp.name,
             employeeId: emp.employeeId,
@@ -169,6 +228,8 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
   };
 
   const handleRetryFailed = async () => {
+    if (isEmailSendingDisabled) return;
+
     const failedIndices = statuses
       .map((s, idx) => (s.status === 'failed' ? idx : -1))
       .filter(idx => idx !== -1);
@@ -205,7 +266,6 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
         const res = await apiClient.request('/email/send', {
           method: 'POST',
           body: JSON.stringify({
-            smtpConfig: formData,
             recipientEmail: emp.email,
             recipientName: emp.name,
             employeeId: emp.employeeId,
@@ -245,7 +305,7 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
         <div>
           <div className="flex items-center space-x-2 text-xs font-semibold text-[#CB1417] uppercase tracking-wider mb-1">
             <Mail className="w-4 h-4 text-[#CB1417]" />
-            <span>Secure SMTP & Individual Email Dispatch</span>
+            <span>Secure Server-Side Payslip Dispatch</span>
           </div>
           <h2 className={`text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>
             Bulk Individual Email Delivery
@@ -257,7 +317,7 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
 
         <div className="flex items-center space-x-3">
           <button
-            onClick={handleSaveConfig}
+            onClick={handleSaveTemplates}
             className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg text-xs font-medium border transition cursor-pointer ${
               isDark
                 ? 'bg-[#18181B] hover:bg-[#27272A] text-white border-[#27272A]'
@@ -265,18 +325,102 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
             }`}
           >
             <Key className="w-3.5 h-3.5 text-[#CB1417]" />
-            <span>Save SMTP Config</span>
+            <span>Save Templates</span>
           </button>
           <button
             onClick={handlePrepareBulkSend}
-            disabled={employees.length === 0 || isBulkSending}
-            className="flex items-center space-x-2 px-4 py-2 bg-[#CB1417] hover:bg-[#ED1F24] disabled:opacity-50 text-white rounded-lg text-xs font-bold shadow-md shadow-[#CB1417]/25 transition cursor-pointer"
+            disabled={isEmailSendingDisabled || employees.length === 0 || isBulkSending}
+            title={isEmailSendingDisabled ? 'Email service not configured. Configure SMTP in Company Settings to enable.' : 'Send payslips to all employees'}
+            className="flex items-center space-x-2 px-4 py-2 bg-[#CB1417] hover:bg-[#ED1F24] disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-lg text-xs font-bold shadow-md shadow-[#CB1417]/25 transition cursor-pointer"
           >
             <Send className="w-4 h-4" />
             <span>Send Payslips ({employees.length})</span>
           </button>
         </div>
       </div>
+
+      {/* Prominent Banner when Email Service is NOT Configured or NOT Verified */}
+      {!isLoadingStatus && !smtpStatus?.isConfigured && (
+        <div className="border border-amber-500/40 bg-amber-500/10 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start space-x-3.5">
+            <div className="p-2 rounded-lg bg-amber-500/20 text-amber-500 shrink-0">
+              <AlertTriangle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-sm text-amber-600 dark:text-amber-400">
+                  Email service not configured
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-amber-500/20 text-amber-700 dark:text-amber-300">
+                  Deployment Mode
+                </span>
+              </div>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 max-w-2xl">
+                SMTP outgoing email server settings have not been configured for this company. To prevent failures, <strong>actual email sending is disabled</strong> until an authorized administrator configures and verifies SMTP credentials in <strong>Company Settings</strong>.
+              </p>
+            </div>
+          </div>
+          {onNavigateToSettings && (
+            <button
+              onClick={onNavigateToSettings}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-bold shrink-0 transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Configure in Company Settings</span>
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Warning when Configured but NOT Verified */}
+      {!isLoadingStatus && smtpStatus?.isConfigured && !smtpStatus?.isVerified && (
+        <div className="border border-blue-500/40 bg-blue-500/10 rounded-xl p-5 flex flex-col md:flex-row items-start md:items-center justify-between gap-4">
+          <div className="flex items-start space-x-3.5">
+            <div className="p-2 rounded-lg bg-blue-500/20 text-blue-500 shrink-0">
+              <AlertCircle className="w-5 h-5" />
+            </div>
+            <div>
+              <div className="flex items-center space-x-2">
+                <span className="font-bold text-sm text-blue-600 dark:text-blue-400">
+                  SMTP Configured — Verification Required
+                </span>
+                <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-blue-500/20 text-blue-700 dark:text-blue-300">
+                  Pending Verification
+                </span>
+              </div>
+              <p className="text-xs text-zinc-600 dark:text-zinc-400 mt-1 max-w-2xl">
+                SMTP server parameters are stored, but the connection has not yet been verified. Run a test connection to ensure credentials and firewall ports are open before sending bulk payslips.
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleVerifySmtp}
+            disabled={isVerifying}
+            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-bold shrink-0 transition flex items-center space-x-1.5 cursor-pointer shadow-xs"
+          >
+            {isVerifying ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <CheckCircle2 className="w-3.5 h-3.5" />}
+            <span>Test & Activate Connection</span>
+          </button>
+        </div>
+      )}
+
+      {/* Active Service Badge when Verified */}
+      {!isLoadingStatus && smtpStatus?.isConfigured && smtpStatus?.isVerified && (
+        <div className="border border-emerald-500/30 bg-emerald-500/10 rounded-xl p-4 flex items-center justify-between text-xs text-emerald-600 dark:text-emerald-400">
+          <div className="flex items-center space-x-2.5">
+            <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
+            <span>
+              <strong>Email Service Active:</strong> Connected to <code>{smtpStatus.smtpHost}:{smtpStatus.smtpPort}</code> with sender <code>{smtpStatus.senderEmail}</code>. Actual email sending is fully enabled.
+            </span>
+          </div>
+          <button
+            onClick={loadSmtpStatus}
+            className="text-[11px] font-semibold underline hover:opacity-80 cursor-pointer"
+          >
+            Refresh Status
+          </button>
+        </div>
+      )}
 
       {toastMessage && (
         <div className={`p-3.5 rounded-xl flex items-center space-x-3 text-xs border ${
@@ -287,9 +431,9 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
         </div>
       )}
 
-      {/* Grid: SMTP Config vs Templates */}
+      {/* Grid: Server-Side SMTP Status Overview vs Templates */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Left: SMTP Configuration */}
+        {/* Left: Server-Side SMTP Status Card */}
         <div
           className={`border rounded-xl p-6 space-y-4 text-xs transition ${
             isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-[#FFFFFF] border-[#E4E4E7]'
@@ -298,103 +442,94 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
           <div className="flex items-center justify-between border-b pb-3">
             <h3 className={`text-sm font-bold flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
               <Server className="w-4 h-4 text-[#CB1417]" />
-              <span>Company SMTP Server Settings</span>
+              <span>Server-Side SMTP Configuration</span>
             </h3>
             <span className="text-[11px] text-emerald-500 font-semibold flex items-center space-x-1">
               <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Encrypted Local Store</span>
+              <span>Encrypted Server Store</span>
             </span>
           </div>
 
-          <div className="grid grid-cols-3 gap-3">
-            <div className="col-span-2">
-              <label className={`block font-semibold mb-1 ${isDark ? 'text-white' : 'text-black'}`}>SMTP Host</label>
-              <input
-                type="text"
-                value={formData.smtpHost}
-                onChange={e => handleFieldChange('smtpHost', e.target.value)}
-                placeholder="smtp.gmail.com or smtp.office365.com"
-                className={`w-full px-3 py-2 rounded-lg border text-xs outline-none transition ${
-                  isDark ? 'bg-[#141416] border-[#27272A] text-white focus:border-[#CB1417]' : 'bg-[#FAFAFC] border-[#E4E4E7] text-black focus:border-[#CB1417]'
-                }`}
-              />
+          <div className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div className={`p-3 rounded-lg border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+                <span className="text-[10px] text-zinc-500 uppercase font-semibold block mb-0.5">Configuration Status</span>
+                <span className={`font-bold ${smtpStatus?.isConfigured ? 'text-emerald-500' : 'text-amber-500'}`}>
+                  {smtpStatus?.isConfigured ? 'Configured' : 'Not Configured (Optional at Deploy)'}
+                </span>
+              </div>
+              <div className={`p-3 rounded-lg border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+                <span className="text-[10px] text-zinc-500 uppercase font-semibold block mb-0.5">Verification Status</span>
+                <span className={`font-bold ${smtpStatus?.isVerified ? 'text-emerald-500' : 'text-zinc-400'}`}>
+                  {smtpStatus?.isVerified ? 'Verified & Ready' : 'Unverified'}
+                </span>
+              </div>
             </div>
-            <div>
-              <label className={`block font-semibold mb-1 ${isDark ? 'text-white' : 'text-black'}`}>Port</label>
-              <input
-                type="number"
-                value={formData.smtpPort}
-                onChange={e => handleFieldChange('smtpPort', Number(e.target.value))}
-                className={`w-full px-3 py-2 rounded-lg border text-xs outline-none transition ${
-                  isDark ? 'bg-[#141416] border-[#27272A] text-white focus:border-[#CB1417]' : 'bg-[#FAFAFC] border-[#E4E4E7] text-black focus:border-[#CB1417]'
-                }`}
-              />
+
+            <div className="space-y-2 pt-1">
+              <div className="flex justify-between py-1 border-b dark:border-zinc-800 border-zinc-100">
+                <span className="text-zinc-500">SMTP Host:</span>
+                <span className={`font-mono font-medium ${isDark ? 'text-white' : 'text-black'}`}>
+                  {smtpStatus?.smtpHost || '—'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b dark:border-zinc-800 border-zinc-100">
+                <span className="text-zinc-500">SMTP Port:</span>
+                <span className={`font-mono font-medium ${isDark ? 'text-white' : 'text-black'}`}>
+                  {smtpStatus?.smtpPort ? `${smtpStatus.smtpPort} (${smtpStatus.smtpPort === 465 ? 'SSL' : 'STARTTLS'})` : '—'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b dark:border-zinc-800 border-zinc-100">
+                <span className="text-zinc-500">SMTP Username:</span>
+                <span className={`font-mono font-medium ${isDark ? 'text-white' : 'text-black'}`}>
+                  {smtpStatus?.smtpUser || 'None'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b dark:border-zinc-800 border-zinc-100">
+                <span className="text-zinc-500">Sender Email:</span>
+                <span className={`font-mono font-medium ${isDark ? 'text-white' : 'text-black'}`}>
+                  {smtpStatus?.senderEmail || '—'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1 border-b dark:border-zinc-800 border-zinc-100">
+                <span className="text-zinc-500">Sender Display Name:</span>
+                <span className={`font-medium ${isDark ? 'text-white' : 'text-black'}`}>
+                  {smtpStatus?.senderName || '—'}
+                </span>
+              </div>
+              <div className="flex justify-between py-1">
+                <span className="text-zinc-500 flex items-center space-x-1">
+                  <Lock className="w-3 h-3" />
+                  <span>SMTP Password:</span>
+                </span>
+                <span className="font-mono text-zinc-400">
+                  {smtpStatus?.hasPassword ? '•••••••••••• (Server-side Encrypted)' : 'Not Set'}
+                </span>
+              </div>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className={`block font-semibold mb-1 ${isDark ? 'text-white' : 'text-black'}`}>SMTP Username / Email</label>
-              <input
-                type="text"
-                value={formData.smtpUser}
-                onChange={e => handleFieldChange('smtpUser', e.target.value)}
-                placeholder="hr@company.com"
-                className={`w-full px-3 py-2 rounded-lg border text-xs outline-none transition ${
-                  isDark ? 'bg-[#141416] border-[#27272A] text-white focus:border-[#CB1417]' : 'bg-[#FAFAFC] border-[#E4E4E7] text-black focus:border-[#CB1417]'
-                }`}
-              />
-            </div>
-            <div>
-              <label className={`block font-semibold mb-1 ${isDark ? 'text-white' : 'text-black'}`}>App Password / Token</label>
-              <input
-                type="password"
-                value={formData.smtpPass}
-                onChange={e => handleFieldChange('smtpPass', e.target.value)}
-                placeholder="••••••••••••••••"
-                className={`w-full px-3 py-2 rounded-lg border text-xs outline-none transition ${
-                  isDark ? 'bg-[#141416] border-[#27272A] text-white focus:border-[#CB1417]' : 'bg-[#FAFAFC] border-[#E4E4E7] text-black focus:border-[#CB1417]'
-                }`}
-              />
-            </div>
-          </div>
-
-          <div className="grid grid-cols-2 gap-3 pt-2">
-            <div>
-              <label className={`block font-semibold mb-1 ${isDark ? 'text-white' : 'text-black'}`}>Sender Display Name</label>
-              <input
-                type="text"
-                value={formData.senderName}
-                onChange={e => handleFieldChange('senderName', e.target.value)}
-                className={`w-full px-3 py-2 rounded-lg border text-xs outline-none transition ${
-                  isDark ? 'bg-[#141416] border-[#27272A] text-white focus:border-[#CB1417]' : 'bg-[#FAFAFC] border-[#E4E4E7] text-black focus:border-[#CB1417]'
-                }`}
-              />
-            </div>
-            <div>
-              <label className={`block font-semibold mb-1 ${isDark ? 'text-white' : 'text-black'}`}>Sender Email Address</label>
-              <input
-                type="email"
-                value={formData.senderEmail}
-                onChange={e => handleFieldChange('senderEmail', e.target.value)}
-                className={`w-full px-3 py-2 rounded-lg border text-xs outline-none transition ${
-                  isDark ? 'bg-[#141416] border-[#27272A] text-white focus:border-[#CB1417]' : 'bg-[#FAFAFC] border-[#E4E4E7] text-black focus:border-[#CB1417]'
-                }`}
-              />
-            </div>
-          </div>
-
-          <div className="pt-3 flex items-center justify-between">
+          <div className="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3">
             <button
               onClick={handleVerifySmtp}
-              disabled={isVerifying}
-              className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition cursor-pointer flex items-center space-x-1.5 ${
+              disabled={isVerifying || !smtpStatus?.isConfigured}
+              className={`px-3.5 py-2 rounded-lg text-xs font-semibold border transition cursor-pointer flex items-center space-x-1.5 w-full sm:w-auto justify-center disabled:opacity-50 disabled:cursor-not-allowed ${
                 isDark ? 'bg-[#141416] hover:bg-[#222226] text-white border-[#27272A]' : 'bg-[#F4F4F6] hover:bg-[#E4E4E7] text-black border-[#E4E4E7]'
               }`}
             >
               {isVerifying ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#CB1417]" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
               <span>Test SMTP Connection</span>
             </button>
+
+            {onNavigateToSettings && (
+              <button
+                onClick={onNavigateToSettings}
+                className="text-xs text-[#CB1417] hover:underline flex items-center space-x-1 font-semibold cursor-pointer"
+              >
+                <span>Edit SMTP in Company Settings</span>
+                <ExternalLink className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {verifyMessage && (
@@ -415,9 +550,12 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
             isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-[#FFFFFF] border-[#E4E4E7]'
           }`}
         >
-          <h3 className={`text-sm font-bold border-b pb-3 ${isDark ? 'text-white border-[#222222]' : 'text-black border-[#E4E4E7]'}`}>
-            Email Template & Placeholders
-          </h3>
+          <div className="border-b pb-3 flex items-center justify-between">
+            <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-black'}`}>
+              Email Template & Placeholders
+            </h3>
+            <span className="text-[11px] text-zinc-500">Customizable per batch</span>
+          </div>
 
           <div>
             <label className={`block font-semibold mb-1 ${isDark ? 'text-white' : 'text-black'}`}>Email Subject</label>
@@ -549,7 +687,7 @@ export const EmailDeliveryView: React.FC<EmailDeliveryViewProps> = ({
               {missingEmailCount > 0 && (
                 <p className="text-amber-500 font-medium">Warning: {missingEmailCount} employee(s) do not have a configured email address and will be skipped.</p>
               )}
-              <p>Each recipient will receive only their own encrypted PDF attachment.</p>
+              <p>Each recipient will receive only their own encrypted PDF attachment via your verified SMTP server.</p>
             </div>
 
             <div className="flex justify-end space-x-3 pt-2">

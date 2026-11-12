@@ -551,6 +551,7 @@ function AppContent() {
                 layoutSettings={layoutSettings}
                 selectedMonth={selectedMonth}
                 selectedYear={selectedYear}
+                onNavigateToSettings={() => setActiveTab('settings')}
               />
             )}
 
@@ -559,6 +560,7 @@ function AppContent() {
                 settings={settings}
                 onSaveSettings={handleSaveSettings}
                 onDatabaseRestored={handleDatabaseRestored}
+                currentUser={currentUser}
               />
             )}
 

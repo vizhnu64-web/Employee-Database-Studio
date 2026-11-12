@@ -360,9 +360,9 @@ export function generatePayslipPdf(
     (layout.showLateDeduction !== false && record.lateDeduction && record.lateDeduction > 0)
       ? { label: layout.labelLateDeduction || 'Late Deduction', amount: record.lateDeduction }
       : null,
-    // Explicit LOP Deduction if provided
-    (layout.showLopAmount !== false && record.lopAmount && record.lopAmount > 0)
-      ? { label: layout.labelLopAmount || 'Loss of Pay (LOP) Deduction', amount: record.lopAmount }
+    // Explicit LOP Deduction if provided (supports both lopAmount and lopDeduction)
+    (layout.showLopAmount !== false && Number(record.lopAmount || record.lopDeduction || 0) > 0)
+      ? { label: layout.labelLopAmount || 'Loss of Pay (LOP) Deduction', amount: Number(record.lopAmount || record.lopDeduction || 0) }
       : null,
     layout.showOtherDeductions !== false ? { label: layout.labelOtherDeductions || 'Other Deductions', amount: record.otherDeductions || 0 } : null,
   ].filter(Boolean) as { label: string; amount: number }[];

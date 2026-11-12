@@ -53,7 +53,29 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
     setShowClearConfirm(false);
   };
 
-  const handleDownloadHistoricalPdf = (record: GeneratedPayslipRecord) => {
+  const handleDownloadHistoricalPdf = async (record: GeneratedPayslipRecord) => {
+    try {
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      const res = await fetch(`/api/payroll/payslip-pdf/${record.id}`, {
+        headers: token ? { Authorization: `Bearer ${token}` } : {}
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.signedUrl) {
+          const a = document.createElement('a');
+          a.href = data.signedUrl;
+          a.download = record.fileName || 'payslip.pdf';
+          a.target = '_blank';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          return;
+        }
+      }
+    } catch (e) {
+      console.warn('[Storage] Cloud download fell back to local generation:', e);
+    }
+
     const match = employees.find(e => e.employeeId.toLowerCase() === record.employeeId.toLowerCase()) || {
       id: record.id,
       employeeId: record.employeeId,

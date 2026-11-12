@@ -7,12 +7,17 @@ import rateLimit from 'express-rate-limit';
 
 const router = Router();
 
-// Rate limiter for login attempts: max 10 attempts per 5 minutes per IP
+// Rate limiter for login attempts: max 15 attempts per 5 minutes per IP
 const loginLimiter = rateLimit({
   windowMs: 5 * 60 * 1000,
   max: 15,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false,
+    forwardedHeader: false,
+    trustProxy: false,
+  },
   message: { success: false, error: 'Too many login attempts. Please try again after 5 minutes.' }
 });
 

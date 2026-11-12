@@ -34,9 +34,47 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ docu
             byteNumbers[i] = byteCharacters.charCodeAt(i);
           }
           const byteArray = new Uint8Array(byteNumbers);
-          const blob = new Blob([byteArray], { type: document.mimeType });
+          const blob = new Blob([byteArray], { type: document.mimeType || 'application/octet-stream' });
           createdUrl = URL.createObjectURL(blob);
           if (active) setBlobUrl(createdUrl);
+        } else if (document.id || document.storagePath) {
+          // Fetch short-lived signed URL or direct download stream from backend
+          const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+          const previewEndpoint = document.id ? `/api/documents/preview/${document.id}` : null;
+          
+          let signedUrl: string | null = null;
+          if (previewEndpoint) {
+            const res = await fetch(previewEndpoint, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.signedUrl) {
+                signedUrl = data.signedUrl;
+              }
+            }
+          }
+
+          if (!signedUrl && document.storagePath) {
+            const res = await fetch(`/api/storage/signed-url?bucket=employee-documents&path=${encodeURIComponent(document.storagePath)}`, {
+              headers: token ? { Authorization: `Bearer ${token}` } : {}
+            });
+            if (res.ok) {
+              const data = await res.json();
+              if (data.signedUrl) {
+                signedUrl = data.signedUrl;
+              }
+            }
+          }
+
+          if (signedUrl && active) {
+            setBlobUrl(signedUrl);
+          } else if (document.id) {
+            // Fallback direct backend stream
+            if (active) setBlobUrl(`/api/documents/download/${document.id}`);
+          } else {
+            if (active) setError('Document preview link could not be generated.');
+          }
         } else {
           if (active) setError('Document file data is not available for preview.');
         }
@@ -61,10 +99,13 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ docu
     if (blobUrl) {
       const a = window.document.createElement('a');
       a.href = blobUrl;
-      a.download = document.originalFilename;
+      a.download = document.originalFilename || 'document';
+      a.target = '_blank';
       window.document.body.appendChild(a);
       a.click();
       window.document.body.removeChild(a);
+    } else if (document.id) {
+      window.open(`/api/documents/download/${document.id}`, '_blank');
     }
   };
 

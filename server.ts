@@ -13,6 +13,9 @@ import backupRoutes from './src/server/routes/backup';
 import attendanceRoutes from './src/server/routes/attendance';
 import licenseRoutes from './src/server/routes/license';
 import emailRoutes from './src/server/routes/email';
+import serverStatsRoutes from './src/server/routes/serverStats';
+import payrollRoutes from './src/server/routes/payroll';
+import storageRoutes from './src/server/routes/storage';
 
 dotenv.config();
 
@@ -21,6 +24,9 @@ const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
+
+// Trust first proxy (Cloud Run, Vercel, Load Balancers)
+app.set('trust proxy', 1);
 
 app.use(cors());
 app.use(express.json({ limit: '50mb' }));
@@ -32,6 +38,11 @@ const apiLimiter = rateLimit({
   max: 500,
   standardHeaders: true,
   legacyHeaders: false,
+  validate: {
+    xForwardedForHeader: false,
+    forwardedHeader: false,
+    trustProxy: false,
+  },
 });
 app.use('/api/', apiLimiter);
 
@@ -44,6 +55,9 @@ app.use('/api/backup', backupRoutes);
 app.use('/api/attendance', attendanceRoutes);
 app.use('/api/license', licenseRoutes);
 app.use('/api/email', emailRoutes);
+app.use('/api/server', serverStatsRoutes);
+app.use('/api/payroll', payrollRoutes);
+app.use('/api/storage', storageRoutes);
 
 // Health check endpoint
 app.get('/api/health', (req, res) => {
@@ -56,7 +70,24 @@ app.get('/api/health', (req, res) => {
   });
 });
 
+function checkDeploymentEnvironment() {
+  const requiredVars = ['DATABASE_URL', 'JWT_SECRET', 'INITIAL_ADMIN_PASSWORD'];
+  const missing = requiredVars.filter(v => !process.env[v]);
+  if (missing.length > 0) {
+    console.warn(`[PeopleDesk Security] Warning: The following required environment variables are not set: ${missing.join(', ')}.`);
+  }
+
+  // SMTP is optional during initial deployment. No fake or hardcoded fallback credentials.
+  const hasSmtp = Boolean(process.env.SMTP_HOST && (process.env.SMTP_SENDER_EMAIL || process.env.SMTP_USER));
+  if (!hasSmtp) {
+    console.log('[PeopleDesk Email] Initial deployment: SMTP environment variables are not configured. Email service is unconfigured until an authorized administrator configures SMTP in Company Settings.');
+  } else {
+    console.log(`[PeopleDesk Email] Optional SMTP environment configuration detected for host: ${process.env.SMTP_HOST}`);
+  }
+}
+
 async function startServer() {
+  checkDeploymentEnvironment();
   await initializeDatabase();
 
   if (process.env.NODE_ENV !== 'production') {

@@ -35,13 +35,35 @@ export function authenticateToken(req: AuthRequest, res: Response, next: NextFun
 
 export function requireRole(allowedRoles: string[]) {
   return (req: AuthRequest, res: Response, next: NextFunction) => {
-    if (!req.user || !allowedRoles.includes(req.user.role)) {
-      return res.status(403).json({
-        success: false,
-        error: `Insufficient permissions. Role "${req.user?.role || 'anonymous'}" cannot perform this action.`
-      });
+    const userRole = req.user?.role;
+    if (!userRole) {
+      return res.status(403).json({ success: false, error: 'Unauthorized.' });
     }
-    next();
+    // Super Admin has universal administrative access
+    if (userRole === 'super_admin') {
+      return next();
+    }
+    // Direct match
+    if (allowedRoles.includes(userRole)) {
+      return next();
+    }
+    // Company Admin alias
+    if (allowedRoles.includes('admin') && (userRole === 'admin' || userRole === 'super_admin')) {
+      return next();
+    }
+    // HR hierarchy match
+    if (allowedRoles.includes('hr') && ['hr', 'hr_manager', 'hr_executive', 'admin', 'super_admin'].includes(userRole)) {
+      return next();
+    }
+    // Payroll hierarchy match
+    if (allowedRoles.includes('payroll') && ['payroll', 'payroll_manager', 'payroll_executive', 'admin', 'super_admin'].includes(userRole)) {
+      return next();
+    }
+
+    return res.status(403).json({
+      success: false,
+      error: `Insufficient permissions. Role "${userRole}" cannot perform this action.`
+    });
   };
 }
 

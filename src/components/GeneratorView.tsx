@@ -9,12 +9,14 @@ import {
   ShieldCheck,
   CheckSquare,
   Square,
-  FileCheck
+  FileCheck,
+  Edit
 } from 'lucide-react';
-import { CompanySettings, EmployeeRecord, GeneratedPayslipRecord, PayslipLayoutSettings } from '../types/payroll';
+import { CompanySettings, EmployeeRecord, GeneratedPayslipRecord, PayslipLayoutSettings, DEFAULT_LAYOUT_SETTINGS } from '../types/payroll';
 import { generateBulkPayslipsZip, generatePayslipPdf, getSafeFileName } from '../utils/pdfGenerator';
 import { localDB } from '../utils/dbStorage';
 import { useTheme } from '../context/ThemeContext';
+import { PayslipManualEditorModal } from './PayslipManualEditorModal';
 
 interface GeneratorViewProps {
   employees: EmployeeRecord[];
@@ -45,6 +47,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
   const [duplicateConfirmTarget, setDuplicateConfirmTarget] = useState<EmployeeRecord | null>(null);
   const [bulkDuplicateWarning, setBulkDuplicateWarning] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [editingEmployee, setEditingEmployee] = useState<EmployeeRecord | null>(null);
 
   useEffect(() => {
     const validIds = employees.filter(e => e.isValid).map(e => e.id);
@@ -85,6 +88,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
 
     const doc = generatePayslipPdf(employee, settings, selectedMonth, selectedYear, layoutSettings);
     const fileName = getSafeFileName(employee, selectedMonth, selectedYear);
+    const pdfDataUri = doc.output('datauristring');
     doc.save(fileName);
 
     const historyRecord: GeneratedPayslipRecord = {
@@ -101,6 +105,33 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
       generatedAt: new Date().toISOString(),
       fileName
     };
+
+    // Upload to Supabase Storage backend
+    try {
+      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      await fetch('/api/payroll/save-payslip-pdf', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...(token ? { Authorization: `Bearer ${token}` } : {})
+        },
+        body: JSON.stringify({
+          employeeId: employee.employeeId,
+          employeeName: employee.name,
+          department: employee.department,
+          designation: employee.designation,
+          month: selectedMonth,
+          year: selectedYear,
+          grossEarnings: employee.calculatedGross,
+          totalDeductions: employee.calculatedDeductions,
+          netSalary: employee.calculatedNet,
+          pdfBase64: pdfDataUri,
+          fileName
+        })
+      });
+    } catch (e) {
+      console.warn('[Storage] Failed to sync generated payslip to cloud bucket:', e);
+    }
 
     await localDB.saveGeneratedRecord(historyRecord);
     onRecordGenerated(historyRecord);
@@ -136,6 +167,10 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
       );
 
       for (const emp of targetEmployees) {
+        const fileName = getSafeFileName(emp, selectedMonth, selectedYear);
+        const pdfDoc = generatePayslipPdf(emp, settings, selectedMonth, selectedYear, layoutSettings);
+        const pdfDataUri = pdfDoc.output('datauristring');
+
         const historyRecord: GeneratedPayslipRecord = {
           id: `${emp.employeeId.trim()}_${selectedMonth}_${selectedYear}`.toLowerCase(),
           employeeId: emp.employeeId,
@@ -148,8 +183,35 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
           totalDeductions: emp.calculatedDeductions,
           netSalary: emp.calculatedNet,
           generatedAt: new Date().toISOString(),
-          fileName: getSafeFileName(emp, selectedMonth, selectedYear)
+          fileName
         };
+
+        try {
+          const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+          await fetch('/api/payroll/save-payslip-pdf', {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              ...(token ? { Authorization: `Bearer ${token}` } : {})
+            },
+            body: JSON.stringify({
+              employeeId: emp.employeeId,
+              employeeName: emp.name,
+              department: emp.department,
+              designation: emp.designation,
+              month: selectedMonth,
+              year: selectedYear,
+              grossEarnings: emp.calculatedGross,
+              totalDeductions: emp.calculatedDeductions,
+              netSalary: emp.calculatedNet,
+              pdfBase64: pdfDataUri,
+              fileName
+            })
+          });
+        } catch (e) {
+          console.warn('[Storage] Failed to upload bulk payslip to cloud bucket:', e);
+        }
+
         await localDB.saveGeneratedRecord(historyRecord);
         onRecordGenerated(historyRecord);
       }
@@ -372,6 +434,19 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
                       <td className="p-3 text-right">
                         <div className="flex items-center justify-end space-x-2">
                           <button
+                            onClick={() => setEditingEmployee(emp)}
+                            title="Edit Payslip & Post-Generation Adjustments"
+                            className={`flex items-center space-x-1 px-2.5 py-1 rounded border text-xs font-medium transition cursor-pointer ${
+                              isDark
+                                ? 'bg-[#18181B] hover:bg-[#27272A] text-amber-400 border-amber-500/30'
+                                : 'bg-[#FFFFFF] hover:bg-[#FEF3C7] text-amber-700 border-amber-300'
+                            }`}
+                          >
+                            <Edit className="w-3.5 h-3.5" />
+                            <span>Edit</span>
+                          </button>
+
+                          <button
                             onClick={() => onPreviewEmployee(emp)}
                             title="Interactive A4 Preview"
                             className={`flex items-center space-x-1 px-2.5 py-1 rounded border text-xs font-medium transition cursor-pointer ${
@@ -516,6 +591,23 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
             </p>
           </div>
         </div>
+      )}
+
+      {/* Manual Payslip Editor Modal */}
+      {editingEmployee && (
+        <PayslipManualEditorModal
+          employee={editingEmployee}
+          settings={settings}
+          month={selectedMonth}
+          year={selectedYear}
+          layoutSettings={layoutSettings || DEFAULT_LAYOUT_SETTINGS}
+          onSaveUpdatedRecord={(updatedEmp, genRecord) => {
+            onRecordGenerated(genRecord);
+            setSuccessToast(`Successfully revised payslip for ${updatedEmp.name}.`);
+            setEditingEmployee(null);
+          }}
+          onClose={() => setEditingEmployee(null)}
+        />
       )}
     </div>
   );

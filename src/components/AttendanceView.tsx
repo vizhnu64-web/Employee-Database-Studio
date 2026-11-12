@@ -203,21 +203,24 @@ export const AttendanceView: React.FC = () => {
     });
   }, [attendanceRecords, searchTerm, departmentFilter, statusFilter]);
 
-  // Subtabs list
+  // 16 Dedicated Subtabs matching full specification
   const subTabs = [
-    { id: 'dashboard', label: 'Dashboard', icon: Calendar },
-    { id: 'daily', label: 'Daily Register', icon: Users },
-    { id: 'weekly', label: 'Weekly Summary', icon: Clock },
-    { id: 'monthly', label: 'Monthly Matrix', icon: FileSpreadsheet },
-    { id: 'yearly', label: 'Yearly Trend', icon: History },
-    { id: 'devices', label: 'Attendance Devices', icon: Server },
-    { id: 'import', label: 'Import Punch Log', icon: Upload },
-    { id: 'approvals', label: 'Approvals & Corrections', icon: ShieldCheck },
-    { id: 'holidays', label: 'Holiday Calendar', icon: Calendar },
-    { id: 'extrawork', label: 'Extra Working Days', icon: Briefcase },
-    { id: 'rules', label: 'Rules & LOP Settings', icon: Settings },
-    { id: 'reports', label: 'Reports & Exports', icon: Download },
-    { id: 'audit', label: 'Audit History', icon: FileCheck }
+    { id: 'dashboard', label: '1. Dashboard', icon: Calendar },
+    { id: 'daily', label: '2. Daily Register', icon: Users },
+    { id: 'weekly', label: '3. Weekly Register', icon: Clock },
+    { id: 'monthly', label: '4. Monthly Matrix', icon: FileSpreadsheet },
+    { id: 'yearly', label: '5. Yearly Trends', icon: History },
+    { id: 'employee', label: '6. Employee Attendance', icon: Users },
+    { id: 'import', label: '7. Import Punches', icon: Upload },
+    { id: 'devices', label: '8. Biometric Devices', icon: Server },
+    { id: 'approvals', label: '9. Approvals & Corrections', icon: ShieldCheck },
+    { id: 'shifts', label: '10. Shift Settings', icon: Clock },
+    { id: 'holidays', label: '11. Holiday Calendar', icon: Calendar },
+    { id: 'weekly_off', label: '12. Weekly Off Rules', icon: CheckSquare },
+    { id: 'extrawork', label: '13. Extra Work', icon: Briefcase },
+    { id: 'rules', label: '14. Rules & LOP Settings', icon: Settings },
+    { id: 'reports', label: '15. Reports & Exports', icon: Download },
+    { id: 'audit', label: '16. Audit History', icon: FileCheck }
   ];
 
   // Handlers
@@ -866,7 +869,99 @@ export const AttendanceView: React.FC = () => {
         </div>
       )}
 
-      {/* SUBTAB 6: DEVICES */}
+      {/* SUBTAB 6: EMPLOYEE ATTENDANCE 360 PROFILE */}
+      {activeSubTab === 'employee' && (
+        <div className="space-y-6">
+          <div className={`border rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>
+            <div>
+              <div className="flex items-center space-x-2 text-xs font-semibold text-[#CB1417] uppercase tracking-wider mb-1">
+                <Users className="w-4 h-4 text-[#CB1417]" />
+                <span>Employee 360 Attendance Profile</span>
+              </div>
+              <h3 className={`text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                Individual Attendance & Punch Logs
+              </h3>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                Inspect detailed biometric logs, late arrival count, net working hours, and LOP days per individual staff member.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className={`p-4 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+              <span className="font-semibold text-xs block text-zinc-400">Select Employee</span>
+              <div className="space-y-2">
+                {attendanceRecords.map(r => (
+                  <div
+                    key={r.id}
+                    onClick={() => setNewEmpId(r.employeeId)}
+                    className={`p-2.5 rounded-lg border cursor-pointer transition flex items-center justify-between text-xs ${
+                      newEmpId === r.employeeId
+                        ? 'bg-[#CB1417]/10 border-[#CB1417] text-[#CB1417] font-bold'
+                        : isDark ? 'border-zinc-800 hover:bg-zinc-800' : 'border-zinc-200 hover:bg-zinc-100'
+                    }`}
+                  >
+                    <div>
+                      <div>{r.name}</div>
+                      <div className="text-[10px] text-zinc-500 font-mono">{r.employeeId} • {r.department}</div>
+                    </div>
+                    <span className="text-[10px] px-2 py-0.5 rounded-full bg-zinc-800 text-zinc-300 font-mono">
+                      {r.status}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            <div className={`md:col-span-2 p-5 rounded-xl border space-y-4 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-white border-[#E4E4E7]'}`}>
+              <div className="flex items-center justify-between border-b pb-3 dark:border-zinc-800 border-zinc-200">
+                <div>
+                  <h4 className="font-bold text-sm">Monthly Punch History: {selectedMonth} {selectedYear}</h4>
+                  <p className="text-zinc-500 text-xs">Biometric punch timestamps and daily net hours calculation</p>
+                </div>
+                <span className="px-3 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+                  Approved
+                </span>
+              </div>
+
+              <div className="grid grid-cols-3 gap-3 text-center text-xs">
+                <div className={`p-3 rounded-lg border ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="text-zinc-500 text-[11px] block">Present Days</span>
+                  <span className="text-lg font-bold text-emerald-500">27 Days</span>
+                </div>
+                <div className={`p-3 rounded-lg border ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="text-zinc-500 text-[11px] block">Late Arrivals</span>
+                  <span className="text-lg font-bold text-amber-500">3 Days</span>
+                </div>
+                <div className={`p-3 rounded-lg border ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="text-zinc-500 text-[11px] block">Approved LOP</span>
+                  <span className="text-lg font-bold text-rose-500">2 Days</span>
+                </div>
+              </div>
+
+              <div className="divide-y dark:divide-zinc-800 divide-zinc-100 text-xs">
+                <div className="py-2 flex justify-between font-mono">
+                  <span>2026-10-31 (Fri)</span>
+                  <span>09:28 AM – 06:35 PM</span>
+                  <span className="font-bold text-emerald-500">8.1 hrs (Present)</span>
+                </div>
+                <div className="py-2 flex justify-between font-mono">
+                  <span>2026-10-30 (Thu)</span>
+                  <span>09:42 AM – 06:30 PM</span>
+                  <span className="font-bold text-amber-500">7.8 hrs (Late Arrival)</span>
+                </div>
+                <div className="py-2 flex justify-between font-mono">
+                  <span>2026-10-27 (Mon)</span>
+                  <span>—</span>
+                  <span className="font-bold text-rose-500">0.0 hrs (LOP Unapproved)</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 8: DEVICES */}
       {activeSubTab === 'devices' && (
         <div className="space-y-6">
           <div className={`border rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>
@@ -1050,7 +1145,145 @@ export const AttendanceView: React.FC = () => {
         </div>
       )}
 
-      {/* SUBTAB 9: HOLIDAYS */}
+      {/* SUBTAB 10: SHIFT SETTINGS */}
+      {activeSubTab === 'shifts' && (
+        <div className="space-y-6">
+          <div className={`border rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>
+            <div>
+              <div className="flex items-center space-x-2 text-xs font-semibold text-[#CB1417] uppercase tracking-wider mb-1">
+                <Clock className="w-4 h-4 text-[#CB1417]" />
+                <span>Multi-Shift Configuration Engine</span>
+              </div>
+              <h3 className={`text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                Work Shifts, Timing & Break Policies
+              </h3>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                Configure operational shifts, grace periods, and break policies with automatic net working hours calculation.
+              </p>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className={`p-4 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm">General Corporate Shift</h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">Active</span>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between text-zinc-400">
+                  <span>Timing:</span>
+                  <span className="font-mono text-white font-semibold">09:30 AM – 06:30 PM</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Gross Span:</span>
+                  <span className="font-mono">9.0 Hours</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Lunch / Break:</span>
+                  <span className="font-mono">60 Minutes</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Net Target:</span>
+                  <span className="font-mono text-emerald-500 font-bold">8.0 Net Hours</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Grace Period:</span>
+                  <span className="font-mono">15 Minutes</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={`p-4 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm">Morning Production Shift</h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/10 text-blue-500 border border-blue-500/20">Active</span>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between text-zinc-400">
+                  <span>Timing:</span>
+                  <span className="font-mono text-white font-semibold">06:00 AM – 02:00 PM</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Gross Span:</span>
+                  <span className="font-mono">8.0 Hours</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Break:</span>
+                  <span className="font-mono">30 Minutes</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Net Target:</span>
+                  <span className="font-mono text-emerald-500 font-bold">7.5 Net Hours</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Grace Period:</span>
+                  <span className="font-mono">10 Minutes</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={`p-4 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm">Evening Shift</h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-purple-500/10 text-purple-500 border border-purple-500/20">Active</span>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between text-zinc-400">
+                  <span>Timing:</span>
+                  <span className="font-mono text-white font-semibold">02:00 PM – 10:00 PM</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Gross Span:</span>
+                  <span className="font-mono">8.0 Hours</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Break:</span>
+                  <span className="font-mono">30 Minutes</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Net Target:</span>
+                  <span className="font-mono text-emerald-500 font-bold">7.5 Net Hours</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Grace Period:</span>
+                  <span className="font-mono">10 Minutes</span>
+                </div>
+              </div>
+            </div>
+
+            <div className={`p-4 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+              <div className="flex items-center justify-between">
+                <h4 className="font-bold text-sm">Night Operations Shift</h4>
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-500 border border-amber-500/20">Active</span>
+              </div>
+              <div className="space-y-1.5 text-xs">
+                <div className="flex justify-between text-zinc-400">
+                  <span>Timing:</span>
+                  <span className="font-mono text-white font-semibold">10:00 PM – 06:00 AM</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Gross Span:</span>
+                  <span className="font-mono">8.0 Hours</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Break:</span>
+                  <span className="font-mono">45 Minutes</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Net Target:</span>
+                  <span className="font-mono text-emerald-500 font-bold">7.25 Net Hours</span>
+                </div>
+                <div className="flex justify-between text-zinc-400">
+                  <span>Grace Period:</span>
+                  <span className="font-mono">15 Minutes</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 11: HOLIDAYS */}
       {activeSubTab === 'holidays' && (
         <div className="space-y-6">
           <div className={`border rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>
@@ -1124,7 +1357,116 @@ export const AttendanceView: React.FC = () => {
         </div>
       )}
 
-      {/* SUBTAB 10: EXTRA WORKING DAYS & COMPENSATION */}
+      {/* SUBTAB 12: WEEKLY OFF RULES */}
+      {activeSubTab === 'weekly_off' && (
+        <div className="space-y-6">
+          <div className={`border rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>
+            <div>
+              <div className="flex items-center space-x-2 text-xs font-semibold text-[#CB1417] uppercase tracking-wider mb-1">
+                <CheckSquare className="w-4 h-4 text-[#CB1417]" />
+                <span>Statutory Weekly Off Policies</span>
+              </div>
+              <h3 className={`text-xl font-bold tracking-tight ${isDark ? 'text-white' : 'text-black'}`}>
+                Weekly Off Rules & Non-Deduction Guarantees
+              </h3>
+              <p className={`text-xs mt-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                Enforce company weekly off rules. Weekly off days are never automatically counted as LOP or deducted from base pay.
+              </p>
+            </div>
+          </div>
+
+          <div className="p-4 rounded-xl border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 text-xs flex items-center space-x-2.5">
+            <CheckCircle2 className="w-5 h-5 shrink-0" />
+            <span>
+              <strong>Statutory Protection Active:</strong> Weekly off days (Saturdays & Sundays) are protected non-working days. They are strictly excluded from LOP day calculations unless an HR admin explicitly overrides.
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            <div className={`p-5 rounded-xl border space-y-4 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+              <h4 className="font-bold text-sm">Company Weekly Off Pattern</h4>
+
+              <div className="space-y-3 text-xs">
+                <div>
+                  <label className="font-semibold block mb-1">Primary Weekly Off</label>
+                  <select className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}>
+                    <option value="sun">Every Sunday (Fixed)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold block mb-1">Secondary Weekly Off (Saturday)</label>
+                  <select className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}>
+                    <option value="all_sat">All Saturdays Off (5-Day Corporate Week)</option>
+                    <option value="alt_sat">Alternate Saturdays (2nd & 4th Saturday Off)</option>
+                    <option value="working_sat">All Saturdays Working (6-Day Manufacturing Week)</option>
+                  </select>
+                </div>
+
+                <div>
+                  <label className="font-semibold block mb-1">Sandwich Leave Rule Policy</label>
+                  <select className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}>
+                    <option value="disabled">Disabled (Do not sandwich weekly offs into LOP)</option>
+                    <option value="enabled">Enabled (Consecutive Friday + Monday absence includes weekend)</option>
+                  </select>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => showToastMsg('Weekly off policy configuration updated.')}
+                  className="w-full py-2 btn-primary font-bold rounded-lg cursor-pointer text-xs"
+                >
+                  Save Weekly Off Rules
+                </button>
+              </div>
+            </div>
+
+            <div className={`md:col-span-2 p-5 rounded-xl border space-y-4 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-white border-[#E4E4E7]'}`}>
+              <div className="flex items-center justify-between border-b pb-2 dark:border-zinc-800 border-zinc-200">
+                <h4 className="font-bold text-sm">October 2026: Protected Weekly Off Dates</h4>
+                <span className="font-mono text-xs text-zinc-400">Total: 9 Non-Working Days</span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                <div className={`p-3 rounded-lg border text-center ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="font-bold block text-blue-400">Oct 03 (Sat)</span>
+                  <span className="text-[10px] text-zinc-500">Weekly Off 1</span>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="font-bold block text-blue-400">Oct 04 (Sun)</span>
+                  <span className="text-[10px] text-zinc-500">Weekly Off 2</span>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="font-bold block text-blue-400">Oct 10 (Sat)</span>
+                  <span className="text-[10px] text-zinc-500">Weekly Off 3</span>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="font-bold block text-blue-400">Oct 11 (Sun)</span>
+                  <span className="text-[10px] text-zinc-500">Weekly Off 4</span>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="font-bold block text-blue-400">Oct 17 (Sat)</span>
+                  <span className="text-[10px] text-zinc-500">Weekly Off 5</span>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="font-bold block text-blue-400">Oct 18 (Sun)</span>
+                  <span className="text-[10px] text-zinc-500">Weekly Off 6</span>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="font-bold block text-blue-400">Oct 24 (Sat)</span>
+                  <span className="text-[10px] text-zinc-500">Weekly Off 7</span>
+                </div>
+                <div className={`p-3 rounded-lg border text-center ${isDark ? 'bg-black border-zinc-800' : 'bg-zinc-50 border-zinc-200'}`}>
+                  <span className="font-bold block text-blue-400">Oct 25 (Sun)</span>
+                  <span className="text-[10px] text-zinc-500">Weekly Off 8</span>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SUBTAB 13: EXTRA WORK */}
       {activeSubTab === 'extrawork' && (
         <div className="space-y-6">
           <div className={`border rounded-xl p-6 flex flex-col md:flex-row md:items-center justify-between gap-4 ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>

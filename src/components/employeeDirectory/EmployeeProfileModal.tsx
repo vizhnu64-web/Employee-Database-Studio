@@ -35,6 +35,9 @@ import {
 } from '../../utils/employeeDb';
 import { useTheme } from '../../context/ThemeContext';
 import { EmployeeDocumentsSection } from './EmployeeDocumentsSection';
+import { EmployeePayrollDataTab } from './EmployeePayrollDataTab';
+import { EmployeeAttendanceTab } from './EmployeeAttendanceTab';
+import { EmployeePayslipHistoryTab } from './EmployeePayslipHistoryTab';
 
 interface EmployeeProfileModalProps {
   employee: DirectoryEmployee;
@@ -46,9 +49,10 @@ interface EmployeeProfileModalProps {
   onSaveDocument: (doc: EmployeeDocument) => Promise<void>;
   onDeleteDocument: (docId: string) => Promise<void>;
   onClose: () => void;
+  onPreviewPayslip?: (record: any) => void;
 }
 
-type ProfileTab = 'personal' | 'employment' | 'education' | 'statutory' | 'documents' | 'audit';
+type ProfileTab = 'personal' | 'employment' | 'attendance' | 'payroll' | 'documents' | 'payslips';
 
 export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
   employee,
@@ -59,7 +63,8 @@ export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
   onAddToPayroll,
   onSaveDocument,
   onDeleteDocument,
-  onClose
+  onClose,
+  onPreviewPayslip
 }) => {
   const { isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<ProfileTab>('personal');
@@ -72,12 +77,12 @@ export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
   const isInactive = employee.employmentStatus === 'Inactive' || employee.employmentStatus === 'Resigned' || employee.employmentStatus === 'Terminated';
 
   const tabs = [
-    { id: 'personal' as ProfileTab, label: 'Personal & Contact', icon: User },
+    { id: 'personal' as ProfileTab, label: 'Personal Information', icon: User },
     { id: 'employment' as ProfileTab, label: 'Employment Details', icon: Briefcase },
-    { id: 'education' as ProfileTab, label: 'Education', icon: GraduationCap },
-    { id: 'statutory' as ProfileTab, label: 'Govt IDs & Bank', icon: Shield },
+    { id: 'attendance' as ProfileTab, label: 'Attendance', icon: Calendar },
+    { id: 'payroll' as ProfileTab, label: 'Payroll Data', icon: CreditCard },
     { id: 'documents' as ProfileTab, label: `Documents (${documents.filter(d => d.employeeId === employee.employeeId).length})`, icon: FileText },
-    { id: 'audit' as ProfileTab, label: 'Audit Trail', icon: Clock }
+    { id: 'payslips' as ProfileTab, label: 'Payslip History', icon: Clock }
   ];
 
   return (
@@ -308,6 +313,130 @@ export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
                   </div>
                 </div>
               </div>
+              {/* Statutory IDs & Bank Details Card inside Personal Information */}
+              <div className="space-y-4 pt-2">
+                <div className="p-3.5 rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-500 text-xs flex items-center space-x-2">
+                  <Shield className="w-4 h-4 shrink-0" />
+                  <span>Sensitive statutory and financial identifiers are masked by default. Click the eye icon to unmask.</span>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  {/* Government IDs */}
+                  <div className={`p-5 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+                    <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
+                      <Shield className="w-3.5 h-3.5 text-[#CB1417]" />
+                      <span>Government Identifiers</span>
+                    </h4>
+                    <div className="space-y-3 divide-y dark:divide-zinc-800 divide-zinc-200">
+                      <div className="pt-1 flex items-center justify-between">
+                        <span className="text-zinc-500">Aadhaar Number</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-semibold">
+                            {revealedSensitives.aadhaar ? employee.aadhaarNumber || '—' : maskAadhaar(employee.aadhaarNumber)}
+                          </span>
+                          {employee.aadhaarNumber && (
+                            <button
+                              type="button"
+                              onClick={() => toggleReveal('aadhaar')}
+                              className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
+                              title={revealedSensitives.aadhaar ? 'Hide' : 'Reveal'}
+                            >
+                              {revealedSensitives.aadhaar ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex items-center justify-between">
+                        <span className="text-zinc-500">PAN</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-semibold">
+                            {revealedSensitives.pan ? employee.panNumber || '—' : maskPan(employee.panNumber)}
+                          </span>
+                          {employee.panNumber && (
+                            <button
+                              type="button"
+                              onClick={() => toggleReveal('pan')}
+                              className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
+                              title={revealedSensitives.pan ? 'Hide' : 'Reveal'}
+                            >
+                              {revealedSensitives.pan ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex items-center justify-between">
+                        <span className="text-zinc-500">UAN (PF)</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-semibold">
+                            {revealedSensitives.uan ? employee.uanNumber || '—' : maskUan(employee.uanNumber)}
+                          </span>
+                          {employee.uanNumber && (
+                            <button
+                              type="button"
+                              onClick={() => toggleReveal('uan')}
+                              className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
+                              title={revealedSensitives.uan ? 'Hide' : 'Reveal'}
+                            >
+                              {revealedSensitives.uan ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="pt-2 flex items-center justify-between">
+                        <span className="text-zinc-500">ESI / ESIC Number</span>
+                        <span className="font-mono font-semibold">{employee.esiNumber || employee.esicNumber || '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Bank Account */}
+                  <div className={`p-5 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+                    <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
+                      <CreditCard className="w-3.5 h-3.5 text-[#CB1417]" />
+                      <span>Bank & Disbursement</span>
+                    </h4>
+                    <div className="space-y-3 divide-y dark:divide-zinc-800 divide-zinc-200">
+                      <div className="pt-1 flex items-center justify-between">
+                        <span className="text-zinc-500">Account Holder</span>
+                        <span className="font-semibold">{employee.accountHolderName || employee.legalName}</span>
+                      </div>
+                      <div className="pt-2 flex items-center justify-between">
+                        <span className="text-zinc-500">Bank Name</span>
+                        <span className="font-semibold">{employee.bankName || '—'}</span>
+                      </div>
+                      <div className="pt-2 flex items-center justify-between">
+                        <span className="text-zinc-500">Account Number</span>
+                        <div className="flex items-center space-x-2">
+                          <span className="font-mono font-semibold">
+                            {revealedSensitives.bank ? employee.accountNumber || '—' : maskBankAccount(employee.accountNumber)}
+                          </span>
+                          {employee.accountNumber && (
+                            <button
+                              type="button"
+                              onClick={() => toggleReveal('bank')}
+                              className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
+                              title={revealedSensitives.bank ? 'Hide' : 'Reveal'}
+                            >
+                              {revealedSensitives.bank ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                      <div className="pt-2 flex items-center justify-between">
+                        <span className="text-zinc-500">IFSC Code</span>
+                        <span className="font-mono font-semibold">{employee.ifscCode || '—'}</span>
+                      </div>
+                      <div className="pt-2 flex items-center justify-between">
+                        <span className="text-zinc-500">Branch Name</span>
+                        <span className="font-semibold">{employee.branchName || '—'}</span>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
 
@@ -319,7 +448,7 @@ export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
                 <div className={`p-5 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
                   <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
                     <Building className="w-3.5 h-3.5 text-[#CB1417]" />
-                    <span>Organizational Role</span>
+                    <span>Organizational Role & Schedule</span>
                   </h4>
                   <div className="space-y-2.5 divide-y dark:divide-zinc-800 divide-zinc-200">
                     <div className="pt-1 flex justify-between">
@@ -341,6 +470,10 @@ export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
                     <div className="pt-2 flex justify-between">
                       <span className="text-zinc-500">Work Location</span>
                       <span className="font-semibold text-right">{employee.workLocation}</span>
+                    </div>
+                    <div className="pt-2 flex justify-between">
+                      <span className="text-zinc-500">Assigned Shift</span>
+                      <span className="font-semibold text-right text-emerald-500">General Shift (09:30 AM – 06:30 PM)</span>
                     </div>
                   </div>
                 </div>
@@ -382,24 +515,28 @@ export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
                         <span className="font-semibold text-right">{employee.previousEmployer}</span>
                       </div>
                     )}
-                    {employee.previousExperienceYears !== undefined && (
-                      <div className="pt-2 flex justify-between">
-                        <span className="text-zinc-500">Past Experience</span>
-                        <span className="font-semibold text-right">{employee.previousExperienceYears} Years</span>
-                      </div>
-                    )}
                   </div>
                 </div>
               </div>
 
-              {employee.exitReason && (
-                <div className={`p-5 rounded-xl border border-amber-500/20 bg-amber-500/5 space-y-2 ${isDark ? 'bg-[#141416]' : 'bg-[#FAFAFC]'}`}>
-                  <h4 className={`text-xs font-bold uppercase tracking-wider text-amber-500`}>
-                    Resignation / Exit Reason
+              {/* Education & Qualifications */}
+              {employee.qualifications && employee.qualifications.length > 0 && (
+                <div className={`p-5 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
+                  <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
+                    <GraduationCap className="w-3.5 h-3.5 text-blue-500" />
+                    <span>Qualifications</span>
                   </h4>
-                  <p className="text-zinc-600 dark:text-zinc-300 leading-relaxed whitespace-pre-line">
-                    {employee.exitReason}
-                  </p>
+                  <div className="space-y-2">
+                    {employee.qualifications.map((q, idx) => (
+                      <div key={q.id || idx} className="flex items-center justify-between py-1 border-b dark:border-zinc-800 border-zinc-200">
+                        <div>
+                          <span className="font-semibold">{q.qualificationName}</span>
+                          <span className="text-zinc-500 text-[11px] block">{q.institution} • {q.specialization}</span>
+                        </div>
+                        <span className="font-mono text-xs">{q.completionYear}</span>
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -416,207 +553,17 @@ export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
             </div>
           )}
 
-          {/* TAB 3: EDUCATION */}
-          {activeTab === 'education' && (
-            <div className="space-y-4">
-              <h4 className={`text-xs font-bold uppercase tracking-wider ${isDark ? 'text-white' : 'text-black'}`}>
-                Educational Degrees & Professional Qualifications
-              </h4>
-
-              {employee.qualifications && employee.qualifications.length > 0 ? (
-                <div className="space-y-3">
-                  {employee.qualifications.map((q, idx) => (
-                    <div
-                      key={q.id || idx}
-                      className={`p-4 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
-                        isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'
-                      }`}
-                    >
-                      <div className="flex items-start space-x-3">
-                        <div className="w-8 h-8 rounded-lg bg-blue-500/10 border border-blue-500/20 flex items-center justify-center text-blue-500 shrink-0">
-                          <GraduationCap className="w-4 h-4" />
-                        </div>
-                        <div>
-                          <h5 className={`font-bold ${isDark ? 'text-white' : 'text-black'}`}>
-                            {q.qualificationName}
-                          </h5>
-                          <p className="text-zinc-500 text-[11px] mt-0.5">
-                            {q.institution} • {q.specialization}
-                          </p>
-                        </div>
-                      </div>
-                      <span className="px-2.5 py-1 rounded-md bg-zinc-200 dark:bg-zinc-800 text-zinc-700 dark:text-zinc-300 font-mono text-xs font-semibold w-fit">
-                        Completed: {q.completionYear}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className={`p-8 rounded-xl border text-center space-y-2 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                  <GraduationCap className="w-8 h-8 text-zinc-400 mx-auto opacity-50" />
-                  <p className="text-zinc-500">No educational qualifications recorded yet.</p>
-                </div>
-              )}
-            </div>
+          {/* TAB 3: ATTENDANCE */}
+          {activeTab === 'attendance' && (
+            <EmployeeAttendanceTab employee={employee} />
           )}
 
-          {/* TAB 4: STATUTORY & BANK DETAILS */}
-          {activeTab === 'statutory' && (
-            <div className="space-y-6">
-              {/* Sensitive Masking Banner */}
-              <div className="p-3.5 rounded-xl border border-amber-500/20 bg-amber-500/10 text-amber-500 text-xs flex items-center space-x-2">
-                <Shield className="w-4 h-4 shrink-0" />
-                <span>Sensitive statutory and financial identifiers are masked by default. Click the eye icon to unmask.</span>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                {/* Government IDs */}
-                <div className={`p-5 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                  <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
-                    <Shield className="w-3.5 h-3.5 text-[#CB1417]" />
-                    <span>Government Identifiers</span>
-                  </h4>
-                  <div className="space-y-3 divide-y dark:divide-zinc-800 divide-zinc-200">
-                    {/* Aadhaar */}
-                    <div className="pt-1 flex items-center justify-between">
-                      <span className="text-zinc-500">Aadhaar Number</span>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-semibold">
-                          {revealedSensitives.aadhaar ? employee.aadhaarNumber || '—' : maskAadhaar(employee.aadhaarNumber)}
-                        </span>
-                        {employee.aadhaarNumber && (
-                          <button
-                            type="button"
-                            onClick={() => toggleReveal('aadhaar')}
-                            className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
-                            title={revealedSensitives.aadhaar ? 'Hide' : 'Reveal'}
-                          >
-                            {revealedSensitives.aadhaar ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* PAN */}
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-zinc-500">PAN</span>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-semibold">
-                          {revealedSensitives.pan ? employee.panNumber || '—' : maskPan(employee.panNumber)}
-                        </span>
-                        {employee.panNumber && (
-                          <button
-                            type="button"
-                            onClick={() => toggleReveal('pan')}
-                            className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
-                            title={revealedSensitives.pan ? 'Hide' : 'Reveal'}
-                          >
-                            {revealedSensitives.pan ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* UAN */}
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-zinc-500">UAN (PF)</span>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-semibold">
-                          {revealedSensitives.uan ? employee.uanNumber || '—' : maskUan(employee.uanNumber)}
-                        </span>
-                        {employee.uanNumber && (
-                          <button
-                            type="button"
-                            onClick={() => toggleReveal('uan')}
-                            className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
-                            title={revealedSensitives.uan ? 'Hide' : 'Reveal'}
-                          >
-                            {revealedSensitives.uan ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    {/* ESIC / ESI */}
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-zinc-500">ESI / ESIC Number</span>
-                      <span className="font-mono font-semibold">{employee.esiNumber || employee.esicNumber || '—'}</span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Bank Account */}
-                <div className={`p-5 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                  <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
-                    <CreditCard className="w-3.5 h-3.5 text-[#CB1417]" />
-                    <span>Bank & Disbursement</span>
-                  </h4>
-                  <div className="space-y-3 divide-y dark:divide-zinc-800 divide-zinc-200">
-                    <div className="pt-1 flex items-center justify-between">
-                      <span className="text-zinc-500">Account Holder</span>
-                      <span className="font-semibold">{employee.accountHolderName || employee.legalName}</span>
-                    </div>
-
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-zinc-500">Bank Name</span>
-                      <span className="font-semibold">{employee.bankName || '—'}</span>
-                    </div>
-
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-zinc-500">Account Number</span>
-                      <div className="flex items-center space-x-2">
-                        <span className="font-mono font-semibold">
-                          {revealedSensitives.bank ? employee.accountNumber || '—' : maskBankAccount(employee.accountNumber)}
-                        </span>
-                        {employee.accountNumber && (
-                          <button
-                            type="button"
-                            onClick={() => toggleReveal('bank')}
-                            className="text-zinc-400 hover:text-zinc-200 p-0.5 cursor-pointer"
-                            title={revealedSensitives.bank ? 'Hide' : 'Reveal'}
-                          >
-                            {revealedSensitives.bank ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
-                          </button>
-                        )}
-                      </div>
-                    </div>
-
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-zinc-500">IFSC Code</span>
-                      <span className="font-mono font-semibold">{employee.ifscCode || '—'}</span>
-                    </div>
-
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-zinc-500">Branch Name</span>
-                      <span className="font-semibold">{employee.branchName || '—'}</span>
-                    </div>
-
-                    <div className="pt-2 flex items-center justify-between">
-                      <span className="text-zinc-500">Account / Pay Mode</span>
-                      <span className="font-semibold">{employee.accountType || 'Salary'} ({employee.paymentMode || 'Bank Transfer'})</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              {/* Custom Fields Section if present */}
-              {employee.customFields && Object.keys(employee.customFields).length > 0 && (
-                <div className={`p-5 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                  <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
-                    <Shield className="w-3.5 h-3.5 text-[#CB1417]" />
-                    <span>Additional / Custom Information</span>
-                  </h4>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {Object.entries(employee.customFields).map(([k, v]) => (
-                      <div key={k} className="p-2.5 rounded-lg border dark:border-zinc-800 border-zinc-200">
-                        <div className="text-[10px] text-zinc-500 uppercase tracking-wider font-semibold">{k}</div>
-                        <div className="text-xs font-semibold text-white mt-0.5">{v !== undefined && v !== null ? String(v) : '—'}</div>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-            </div>
+          {/* TAB 4: PAYROLL DATA */}
+          {activeTab === 'payroll' && (
+            <EmployeePayrollDataTab
+              employee={employee}
+              onSalaryUpdated={onEdit}
+            />
           )}
 
           {/* TAB 5: DOCUMENTS */}
@@ -629,35 +576,12 @@ export const EmployeeProfileModal: React.FC<EmployeeProfileModalProps> = ({
             />
           )}
 
-          {/* TAB 6: AUDIT TRAIL */}
-          {activeTab === 'audit' && (
-            <div className={`p-5 rounded-xl border space-y-3 ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-              <h4 className={`text-xs font-bold uppercase tracking-wider flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
-                <Clock className="w-3.5 h-3.5 text-[#CB1417]" />
-                <span>Record Metadata & Local Storage Audit</span>
-              </h4>
-              <div className="space-y-2.5 divide-y dark:divide-zinc-800 divide-zinc-200">
-                <div className="pt-1 flex justify-between">
-                  <span className="text-zinc-500">Internal Record ID (UUID)</span>
-                  <span className="font-mono font-semibold">{employee.id}</span>
-                </div>
-                <div className="pt-2 flex justify-between">
-                  <span className="text-zinc-500">Record Created Timestamp</span>
-                  <span className="font-semibold">{new Date(employee.createdAt).toLocaleString()}</span>
-                </div>
-                <div className="pt-2 flex justify-between">
-                  <span className="text-zinc-500">Last Modified Timestamp</span>
-                  <span className="font-semibold">{new Date(employee.updatedAt).toLocaleString()}</span>
-                </div>
-                <div className="pt-2 flex justify-between">
-                  <span className="text-zinc-500">Storage Security</span>
-                  <span className="text-emerald-500 font-semibold flex items-center space-x-1">
-                    <CheckCircle2 className="w-3.5 h-3.5" />
-                    <span>Local Offline Encrypted Store</span>
-                  </span>
-                </div>
-              </div>
-            </div>
+          {/* TAB 6: PAYSLIP HISTORY */}
+          {activeTab === 'payslips' && (
+            <EmployeePayslipHistoryTab
+              employee={employee}
+              onPreviewPayslip={onPreviewPayslip}
+            />
           )}
         </div>
       </div>

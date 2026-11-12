@@ -19,23 +19,29 @@ import {
   AlertTriangle,
   RefreshCw,
   Sliders,
-  Check
+  Check,
+  Server,
+  Lock,
+  ShieldCheck
 } from 'lucide-react';
 import { CompanySettings } from '../types/payroll';
 import { DEFAULT_COMPANY_SETTINGS, localDB } from '../utils/dbStorage';
 import { useTheme } from '../context/ThemeContext';
 import { BrandColorCustomizer } from './BrandColorCustomizer';
+import { apiClient } from '../utils/apiClient';
 
 interface SettingsViewProps {
   settings: CompanySettings;
   onSaveSettings: (settings: CompanySettings) => void;
   onDatabaseRestored: () => void;
+  currentUser?: any;
 }
 
 export const SettingsView: React.FC<SettingsViewProps> = ({
   settings,
   onSaveSettings,
-  onDatabaseRestored
+  onDatabaseRestored,
+  currentUser
 }) => {
   const { theme, setTheme, isDark } = useTheme();
   const [formData, setFormData] = useState<CompanySettings>({ ...settings });
@@ -43,6 +49,165 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   const [toastMessage, setToastMessage] = useState<string | null>(null);
   const [showResetConfirmModal, setShowResetConfirmModal] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+
+  // Server-Side SMTP Settings State (Encrypted & Kept Server-Side)
+  const [smtpConfig, setSmtpConfig] = useState<{
+    smtpHost: string;
+    smtpPort: number;
+    smtpUser: string;
+    smtpPass: string;
+    senderEmail: string;
+    senderName: string;
+    isConfigured: boolean;
+    isVerified: boolean;
+    hasPassword: boolean;
+    lastVerifiedAt: string | null;
+    lastError: string | null;
+  }>({
+    smtpHost: '',
+    smtpPort: 587,
+    smtpUser: '',
+    smtpPass: '',
+    senderEmail: '',
+    senderName: '',
+    isConfigured: false,
+    isVerified: false,
+    hasPassword: false,
+    lastVerifiedAt: null,
+    lastError: null
+  });
+  const [isSmtpLoading, setIsSmtpLoading] = useState(false);
+  const [isSmtpTesting, setIsSmtpTesting] = useState(false);
+  const [isSmtpSaving, setIsSmtpSaving] = useState(false);
+  const [smtpFeedback, setSmtpFeedback] = useState<{ success: boolean; message: string } | null>(null);
+
+  const isAdmin = !currentUser || currentUser.role === 'admin' || currentUser.role === 'super_admin';
+
+  const loadServerSmtp = async () => {
+    setIsSmtpLoading(true);
+    try {
+      const res = await apiClient.request('/email/settings');
+      if (res.success && res.settings) {
+        setSmtpConfig(prev => ({
+          ...prev,
+          smtpHost: res.settings.smtpHost || '',
+          smtpPort: res.settings.smtpPort || 587,
+          smtpUser: res.settings.smtpUser || '',
+          smtpPass: '',
+          senderEmail: res.settings.senderEmail || '',
+          senderName: res.settings.senderName || '',
+          isConfigured: res.isConfigured,
+          isVerified: res.isVerified,
+          hasPassword: Boolean(res.settings.hasPassword),
+          lastVerifiedAt: res.settings.lastVerifiedAt || null,
+          lastError: res.settings.lastError || null
+        }));
+      }
+    } catch (err: any) {
+      console.warn('[SettingsView] Error loading SMTP configuration:', err.message);
+    } finally {
+      setIsSmtpLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadServerSmtp();
+  }, []);
+
+  const handleSaveSmtpSettings = async () => {
+    if (!isAdmin) {
+      alert('Only authorized administrators can modify server-side SMTP credentials.');
+      return;
+    }
+    if (!smtpConfig.smtpHost || !smtpConfig.senderEmail) {
+      setSmtpFeedback({
+        success: false,
+        message: 'SMTP Host and Sender Email are required to configure email service.'
+      });
+      return;
+    }
+
+    setIsSmtpSaving(true);
+    setSmtpFeedback(null);
+    try {
+      const res = await apiClient.request('/email/settings', {
+        method: 'PUT',
+        body: JSON.stringify({
+          smtpHost: smtpConfig.smtpHost,
+          smtpPort: Number(smtpConfig.smtpPort) || 587,
+          smtpUser: smtpConfig.smtpUser,
+          smtpPass: smtpConfig.smtpPass || undefined,
+          senderEmail: smtpConfig.senderEmail,
+          senderName: smtpConfig.senderName
+        })
+      });
+
+      if (res.success) {
+        setSmtpFeedback({
+          success: true,
+          message: res.message || 'SMTP settings saved securely on the server. Please test connection.'
+        });
+        showToast('Server-side SMTP configuration updated.');
+        loadServerSmtp();
+      } else {
+        setSmtpFeedback({
+          success: false,
+          message: res.error || 'Failed to save SMTP settings.'
+        });
+      }
+    } catch (err: any) {
+      setSmtpFeedback({
+        success: false,
+        message: err.message || 'Error communicating with server.'
+      });
+    } finally {
+      setIsSmtpSaving(false);
+    }
+  };
+
+  const handleTestSmtpConnection = async () => {
+    if (!isAdmin) {
+      alert('Only authorized administrators can test SMTP connections.');
+      return;
+    }
+    setIsSmtpTesting(true);
+    setSmtpFeedback(null);
+
+    try {
+      const res = await apiClient.request('/email/verify', {
+        method: 'POST',
+        body: JSON.stringify({
+          smtpHost: smtpConfig.smtpHost,
+          smtpPort: Number(smtpConfig.smtpPort) || 587,
+          smtpUser: smtpConfig.smtpUser,
+          smtpPass: smtpConfig.smtpPass || undefined,
+          senderEmail: smtpConfig.senderEmail,
+          senderName: smtpConfig.senderName
+        })
+      });
+
+      if (res.success) {
+        setSmtpFeedback({
+          success: true,
+          message: res.message || 'SMTP connection tested and verified successfully! Email dispatch is active.'
+        });
+        showToast('SMTP connection verified successfully.');
+        loadServerSmtp();
+      } else {
+        setSmtpFeedback({
+          success: false,
+          message: res.error || 'SMTP server connection verification failed.'
+        });
+      }
+    } catch (err: any) {
+      setSmtpFeedback({
+        success: false,
+        message: err.message || 'Connection error. Check host, port, credentials, and network firewall.'
+      });
+    } finally {
+      setIsSmtpTesting(false);
+    }
+  };
 
   // File Inputs
   const logoInputRef = useRef<HTMLInputElement>(null);
@@ -264,7 +429,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
           { id: 'branding', label: 'Brand & Logo Assets', icon: Palette },
           { id: 'info', label: 'Company Information', icon: Building2 },
           { id: 'payslip', label: 'Payslip Layout & Header', icon: FileText },
-          { id: 'email', label: 'Email Templates', icon: Mail },
+          { id: 'email', label: 'SMTP & Email Service', icon: Mail },
           { id: 'signatory', label: 'Currency & Signatory', icon: CreditCard },
           { id: 'database', label: 'Database Backup & Storage', icon: Database }
         ].map((tab) => {
@@ -626,42 +791,237 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
             </div>
           )}
 
-          {/* SECTION D: EMAIL BRANDING */}
+          {/* SECTION D: SECURE SMTP & EMAIL CONFIGURATION */}
           {activeSection === 'email' && (
-            <div className={`border rounded-xl p-5 space-y-4 text-xs ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>
-              <div className="border-b pb-3 dark:border-zinc-800 border-zinc-200">
-                <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-black'}`}>Email Delivery Branding</h3>
-                <p className="text-zinc-500">Branded header, sender display name, and footer notes for payslip emails.</p>
+            <div className="space-y-6">
+              {/* Card 1: Server-Side Outgoing SMTP Server Configuration */}
+              <div className={`border rounded-xl p-5 space-y-5 text-xs ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>
+                <div className="border-b pb-3 dark:border-zinc-800 border-zinc-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h3 className={`text-sm font-bold flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
+                      <Server className="w-4 h-4 text-[#CB1417]" />
+                      <span>Outgoing SMTP Server (Authorized Administrator Access)</span>
+                    </h3>
+                    <p className="text-zinc-500 text-[11px] mt-0.5">
+                      Configure company SMTP mail server for payslip dispatch. Credentials are encrypted and kept strictly server-side.
+                    </p>
+                  </div>
+                  <span className="text-[11px] text-emerald-500 font-semibold flex items-center space-x-1 shrink-0">
+                    <ShieldCheck className="w-3.5 h-3.5" />
+                    <span>Server-Side Encrypted</span>
+                  </span>
+                </div>
+
+                {/* Status Banners */}
+                {!isSmtpLoading && !smtpConfig.isConfigured && (
+                  <div className="p-3.5 rounded-xl border border-amber-500/30 bg-amber-500/10 flex items-start space-x-3 text-xs text-amber-700 dark:text-amber-300">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block">Email service not configured (Initial Deployment Mode)</span>
+                      <span className="text-[11px] opacity-90 block mt-0.5">
+                        SMTP credentials are completely optional during initial deployment. Email sending is currently disabled. Enter your company's SMTP host, port, credentials, and sender email below to activate email delivery.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {!isSmtpLoading && smtpConfig.isConfigured && !smtpConfig.isVerified && (
+                  <div className="p-3.5 rounded-xl border border-blue-500/30 bg-blue-500/10 flex items-start space-x-3 text-xs text-blue-700 dark:text-blue-300">
+                    <AlertTriangle className="w-4 h-4 text-blue-500 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block">SMTP Configured — Pending Connection Verification</span>
+                      <span className="text-[11px] opacity-90 block mt-0.5">
+                        Server settings are saved, but connection has not been verified yet. Click <strong>Test & Verify Connection</strong> below to validate outgoing mail access.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {!isSmtpLoading && smtpConfig.isConfigured && smtpConfig.isVerified && (
+                  <div className="p-3.5 rounded-xl border border-emerald-500/30 bg-emerald-500/10 flex items-start space-x-3 text-xs text-emerald-700 dark:text-emerald-300">
+                    <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold block">Email Service Verified & Active</span>
+                      <span className="text-[11px] opacity-90 block mt-0.5">
+                        Connected to <code>{smtpConfig.smtpHost}:{smtpConfig.smtpPort}</code> via sender <code>{smtpConfig.senderEmail}</code>. Payslip email delivery is operational.
+                      </span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Role Warning if not Administrator */}
+                {!isAdmin && (
+                  <div className="p-3 rounded-lg border border-red-500/30 bg-red-500/10 text-red-500 text-xs flex items-center space-x-2">
+                    <Lock className="w-4 h-4 shrink-0" />
+                    <span>Administrator privilege required: You have read-only access to SMTP configuration settings.</span>
+                  </div>
+                )}
+
+                {/* Form Controls */}
+                <div className="space-y-3.5 pt-1">
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div className="sm:col-span-2">
+                      <label className="font-semibold block mb-1">SMTP Outgoing Host *</label>
+                      <input
+                        type="text"
+                        disabled={!isAdmin || isSmtpSaving || isSmtpTesting}
+                        placeholder="e.g. smtp.gmail.com, smtp.office365.com, smtp.sendgrid.net"
+                        value={smtpConfig.smtpHost}
+                        onChange={(e) => setSmtpConfig(prev => ({ ...prev, smtpHost: e.target.value }))}
+                        className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'} disabled:opacity-60`}
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold block mb-1">Port *</label>
+                      <input
+                        type="number"
+                        disabled={!isAdmin || isSmtpSaving || isSmtpTesting}
+                        placeholder="587"
+                        value={smtpConfig.smtpPort}
+                        onChange={(e) => setSmtpConfig(prev => ({ ...prev, smtpPort: Number(e.target.value) || 587 }))}
+                        className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'} disabled:opacity-60`}
+                      />
+                      <span className="text-[10px] text-zinc-500 block mt-1">
+                        {smtpConfig.smtpPort === 465 ? 'SSL Security' : 'STARTTLS (Default)'}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-semibold block mb-1">SMTP Username / Account Email</label>
+                      <input
+                        type="text"
+                        disabled={!isAdmin || isSmtpSaving || isSmtpTesting}
+                        placeholder="e.g. payroll@company.com or apikey"
+                        value={smtpConfig.smtpUser}
+                        onChange={(e) => setSmtpConfig(prev => ({ ...prev, smtpUser: e.target.value }))}
+                        className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'} disabled:opacity-60`}
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold block mb-1 flex items-center justify-between">
+                        <span>SMTP Password / App Token</span>
+                        {smtpConfig.hasPassword && (
+                          <span className="text-[10px] text-emerald-500 font-normal">Password stored on server</span>
+                        )}
+                      </label>
+                      <input
+                        type="password"
+                        disabled={!isAdmin || isSmtpSaving || isSmtpTesting}
+                        placeholder={smtpConfig.hasPassword ? '•••••••••••• (Leave blank to keep existing password)' : 'Enter SMTP password or API token'}
+                        value={smtpConfig.smtpPass}
+                        onChange={(e) => setSmtpConfig(prev => ({ ...prev, smtpPass: e.target.value }))}
+                        className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'} disabled:opacity-60`}
+                      />
+                      <span className="text-[10px] text-zinc-500 block mt-1">
+                        Never exposed in browser storage or API GET responses.
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="font-semibold block mb-1">Sender Email Address *</label>
+                      <input
+                        type="email"
+                        disabled={!isAdmin || isSmtpSaving || isSmtpTesting}
+                        placeholder="e.g. payroll@company.com"
+                        value={smtpConfig.senderEmail}
+                        onChange={(e) => setSmtpConfig(prev => ({ ...prev, senderEmail: e.target.value }))}
+                        className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'} disabled:opacity-60`}
+                      />
+                    </div>
+                    <div>
+                      <label className="font-semibold block mb-1">Sender Display Name</label>
+                      <input
+                        type="text"
+                        disabled={!isAdmin || isSmtpSaving || isSmtpTesting}
+                        placeholder="e.g. Apex Enterprise HR & Payroll"
+                        value={smtpConfig.senderName}
+                        onChange={(e) => setSmtpConfig(prev => ({ ...prev, senderName: e.target.value }))}
+                        className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'} disabled:opacity-60`}
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Feedback Notification */}
+                {smtpFeedback && (
+                  <div className={`p-3 rounded-lg border text-xs flex items-center space-x-2 ${
+                    smtpFeedback.success
+                      ? isDark ? 'bg-[#0E2013] border-[#1D4A27] text-[#86EFAC]' : 'bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]'
+                      : isDark ? 'bg-[#2E0B0D] border-[#57151A] text-[#FCA5A5]' : 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
+                  }`}>
+                    {smtpFeedback.success ? <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" /> : <AlertTriangle className="w-4 h-4 text-[#ED1F24] shrink-0" />}
+                    <span>{smtpFeedback.message}</span>
+                  </div>
+                )}
+
+                {/* Action Buttons */}
+                {isAdmin && (
+                  <div className="pt-2 border-t dark:border-zinc-800 border-zinc-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+                    <button
+                      type="button"
+                      onClick={handleTestSmtpConnection}
+                      disabled={isSmtpTesting || isSmtpSaving || !smtpConfig.smtpHost}
+                      className={`px-3.5 py-2 rounded-lg font-semibold text-xs border transition cursor-pointer flex items-center space-x-1.5 w-full sm:w-auto justify-center disabled:opacity-50 ${
+                        isDark ? 'border-zinc-800 hover:bg-zinc-800 text-white' : 'border-zinc-300 hover:bg-zinc-100 text-black'
+                      }`}
+                    >
+                      {isSmtpTesting ? <RefreshCw className="w-3.5 h-3.5 animate-spin text-[#CB1417]" /> : <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500" />}
+                      <span>{isSmtpTesting ? 'Testing Connection...' : 'Test & Verify Connection'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSaveSmtpSettings}
+                      disabled={isSmtpSaving || isSmtpTesting}
+                      className="px-4 py-2 bg-[#CB1417] hover:bg-[#ED1F24] text-white rounded-lg text-xs font-bold transition flex items-center space-x-1.5 cursor-pointer shadow-md disabled:opacity-50 w-full sm:w-auto justify-center"
+                    >
+                      {isSmtpSaving ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                      <span>{isSmtpSaving ? 'Saving to Server...' : 'Save SMTP Server Settings'}</span>
+                    </button>
+                  </div>
+                )}
               </div>
 
-              <div>
-                <label className="font-semibold block mb-1">Email Sender Display Name</label>
-                <input
-                  type="text"
-                  value={formData.emailDisplayName || `${formData.companyName} Payroll`}
-                  onChange={(e) => handleFieldChange('emailDisplayName', e.target.value)}
-                  className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}
-                />
-              </div>
+              {/* Card 2: Email Delivery Branding & Signatures */}
+              <div className={`border rounded-xl p-5 space-y-4 text-xs ${isDark ? 'bg-[#0D0D0E] border-[#222222]' : 'bg-white border-[#E4E4E7]'}`}>
+                <div className="border-b pb-3 dark:border-zinc-800 border-zinc-200">
+                  <h3 className={`text-sm font-bold ${isDark ? 'text-white' : 'text-black'}`}>Payslip Email Template Branding</h3>
+                  <p className="text-zinc-500">Sender display name, authorized team signatures, and legal copyright notices.</p>
+                </div>
 
-              <div>
-                <label className="font-semibold block mb-1">Email Custom Signature</label>
-                <textarea
-                  rows={3}
-                  value={formData.emailSignature || 'Human Resources & Payroll Operations Team'}
-                  onChange={(e) => handleFieldChange('emailSignature', e.target.value)}
-                  className={`w-full rounded p-2.5 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}
-                />
-              </div>
+                <div>
+                  <label className="font-semibold block mb-1">Email Sender Display Name</label>
+                  <input
+                    type="text"
+                    value={formData.emailDisplayName || `${formData.companyName} Payroll`}
+                    onChange={(e) => handleFieldChange('emailDisplayName', e.target.value)}
+                    className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}
+                  />
+                </div>
 
-              <div>
-                <label className="font-semibold block mb-1">Email Footer Copyright Text</label>
-                <input
-                  type="text"
-                  value={formData.emailFooterText || `© ${formData.companyName}. All rights reserved.`}
-                  onChange={(e) => handleFieldChange('emailFooterText', e.target.value)}
-                  className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}
-                />
+                <div>
+                  <label className="font-semibold block mb-1">Email Custom Signature</label>
+                  <textarea
+                    rows={3}
+                    value={formData.emailSignature || 'Human Resources & Payroll Operations Team'}
+                    onChange={(e) => handleFieldChange('emailSignature', e.target.value)}
+                    className={`w-full rounded p-2.5 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}
+                  />
+                </div>
+
+                <div>
+                  <label className="font-semibold block mb-1">Email Footer Copyright Text</label>
+                  <input
+                    type="text"
+                    value={formData.emailFooterText || `© ${formData.companyName}. All rights reserved.`}
+                    onChange={(e) => handleFieldChange('emailFooterText', e.target.value)}
+                    className={`w-full rounded px-3 py-2 border ${isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'}`}
+                  />
+                </div>
               </div>
             </div>
           )}

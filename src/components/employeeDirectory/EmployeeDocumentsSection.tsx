@@ -160,9 +160,34 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
         fileSizeBytes = selectedFile.size;
         mimeType = selectedFile.type || 'application/octet-stream';
 
+        // Direct upload to Supabase Storage via backend API
+        try {
+          const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+          const formData = new FormData();
+          formData.append('file', selectedFile);
+          formData.append('employeeId', employee.employeeId);
+          formData.append('category', formCategory);
+          formData.append('title', formTitle.trim());
+
+          const res = await fetch('/api/documents/upload', {
+            method: 'POST',
+            headers: token ? { Authorization: `Bearer ${token}` } : {},
+            body: formData
+          });
+
+          if (res.ok) {
+            const data = await res.json();
+            if (data.success && data.document) {
+              storagePath = data.document.storagePath;
+            }
+          }
+        } catch (uploadErr) {
+          console.warn('[Storage] Backend upload attempt fell back to local cache:', uploadErr);
+        }
+
         const arrayBuffer = await selectedFile.arrayBuffer();
 
-        // Convert to Base64 for local database storage and fast in-app preview
+        // Convert to Base64 for local offline resilient database storage and fast preview
         const bytes = new Uint8Array(arrayBuffer);
         let binary = '';
         const len = bytes.byteLength;
@@ -215,6 +240,15 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
 
   const handleDelete = async (doc: EmployeeDocument) => {
     if (confirm(`Are you sure you want to delete "${doc.title}"? This cannot be undone.`)) {
+      try {
+        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        await fetch(`/api/documents/${doc.id}`, {
+          method: 'DELETE',
+          headers: token ? { Authorization: `Bearer ${token}` } : {}
+        });
+      } catch (err) {
+        console.warn('Backend document delete error:', err);
+      }
       await onDeleteDocument(doc.id);
     }
   };
