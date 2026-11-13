@@ -86,7 +86,7 @@ router.get('/stats', authenticateToken, async (req: AuthRequest, res) => {
       success: true,
       server: {
         status: 'online',
-        app: 'PeopleDesk Studio Enterprise Cloud',
+        app: 'Employee Database Studio Enterprise Cloud',
         version: '1.0.0',
         environment: process.env.NODE_ENV || 'production',
         uptimeSeconds: Math.floor(process.uptime()),

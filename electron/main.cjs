@@ -10,7 +10,7 @@ function createWindow() {
     height: 860,
     minWidth: 1024,
     minHeight: 700,
-    title: 'PeopleDesk Studio',
+    title: 'Employee Database Studio',
     backgroundColor: '#000000',
     webPreferences: {
       preload: path.join(__dirname, 'preload.cjs'),
@@ -38,7 +38,7 @@ function createWindow() {
           click: () => mainWindow.webContents.send('menu:export-backup')
         },
         { type: 'separator' },
-        { role: 'quit', label: 'Exit PeopleDesk Studio' }
+        { role: 'quit', label: 'Exit Employee Database Studio' }
       ]
     },
     {
@@ -71,13 +71,13 @@ function createWindow() {
       label: 'Help',
       submenu: [
         {
-          label: 'About PeopleDesk Studio',
+          label: 'About Employee Database Studio',
           click: () => {
             dialog.showMessageBox(mainWindow, {
                type: 'info',
-               title: 'About PeopleDesk Studio',
-               message: 'PeopleDesk Studio v1.0.0',
-               detail: 'PeopleDesk Studio — Complete HR Employee Database, Records & Payslip Generator.\n100% Offline & Local Data Processing.\nCommercial Enterprise Edition.',
+               title: 'About Employee Database Studio',
+               message: 'Employee Database Studio v1.0.0',
+               detail: 'Employee Database Studio — Complete HR Employee Database, Records & Payslip Generator.\n100% Offline & Local Data Processing.\nCommercial Enterprise Edition.',
                buttons: ['OK']
             });
           }
@@ -122,7 +122,7 @@ function createWindow() {
   });
 
   if (isDev && process.env.VITE_DEV_SERVER_URL) {
-    console.log('[PeopleDesk Studio] Loading Dev URL:', process.env.VITE_DEV_SERVER_URL);
+    console.log('[Employee Database Studio] Loading Dev URL:', process.env.VITE_DEV_SERVER_URL);
     mainWindow.loadURL(process.env.VITE_DEV_SERVER_URL);
   } else {
     // In production, reliably locate dist/index.html using app.getAppPath() with fallbacks
@@ -135,10 +135,10 @@ function createWindow() {
     ];
 
     const targetIndexPath = candidatePaths.find(p => fs.existsSync(p)) || candidatePaths[0];
-    console.log('[PeopleDesk Studio] Loading Production UI from:', targetIndexPath);
+    console.log('[Employee Database Studio] Loading Production UI from:', targetIndexPath);
 
     mainWindow.loadFile(targetIndexPath).catch(err => {
-      console.error('[PeopleDesk Studio] Error in loadFile:', err);
+      console.error('[Employee Database Studio] Error in loadFile:', err);
     });
   }
 
@@ -230,7 +230,7 @@ ipcMain.handle('dialog:save-file', async (event, params) => {
 
 ipcMain.handle('app:get-info', () => {
   return {
-    name: 'PeopleDesk Studio',
+    name: 'Employee Database Studio',
     version: app.getVersion() || '1.0.0',
     platform: process.platform,
     userDataPath: app.getPath('userData')

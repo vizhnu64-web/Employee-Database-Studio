@@ -1,8 +1,8 @@
 {
-  "name": "peopledesk-studio",
-  "productName": "PeopleDesk Studio",
-  "description": "Enterprise Cloud HR Employee Database, Payroll & Vector PDF Payslip Generator",
-  "author": "PeopleDesk Studio",
+  "name": "employee-database-studio",
+  "productName": "Employee Database Studio",
+  "description": "Employee Database Studio — Enterprise Cloud HR Employee Database, Payroll & Vector PDF Payslip Generator",
+  "author": "Employee Database Studio",
   "private": true,
   "version": "1.0.0",
   "scripts": {

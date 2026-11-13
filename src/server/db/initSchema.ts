@@ -1,10 +1,9 @@
 import { query } from './pool';
 import bcrypt from 'bcrypt';
-import crypto from 'crypto';
 
 export async function initializeDatabase() {
   try {
-    console.log('[PeopleDesk DB] Initializing database schema...');
+    console.log('[Employee Database Studio DB] Initializing database schema...');
 
     // Try executing DDL if PostgreSQL is active
     try {
@@ -427,15 +426,30 @@ export async function initializeDatabase() {
     }
 
     // Ensure default Administrator exists
-    const adminRes = await query('SELECT id FROM users WHERE username = $1', ['admin']);
+    const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'admin123';
+    const adminRes = await query('SELECT * FROM users WHERE username = $1', ['admin']);
     if (adminRes.rows.length === 0) {
-      const adminPassword = process.env.INITIAL_ADMIN_PASSWORD || 'admin123';
       const adminHash = await bcrypt.hash(adminPassword, 10);
       await query(`
         INSERT INTO users (company_id, username, password_hash, full_name, role, email, is_active, employee_id, must_change_password)
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `, [companyId, 'admin', adminHash, 'System Administrator', 'admin', 'admin@peopledesk.local', true, 'ADM-001', false]);
-      console.log(`[PeopleDesk Security] Initialized Administrator account. Username: admin`);
+      console.log(`[Employee Database Studio Security] Initialized Administrator account. Username: admin`);
+    } else {
+      const adminUser = adminRes.rows[0];
+      // Reconcile only if the default admin has never logged in and is not mid-password-reset
+      if (!adminUser.last_login_at && !adminUser.must_change_password) {
+        const matchesConfigured = await bcrypt.compare(adminPassword, adminUser.password_hash);
+        if (!matchesConfigured) {
+          const reconciledHash = await bcrypt.hash(adminPassword, 10);
+          await query('UPDATE users SET password_hash = $1, must_change_password = $2 WHERE id = $3', [
+            reconciledHash,
+            false,
+            adminUser.id
+          ]);
+          console.log('[Employee Database Studio Security] Synchronized initial Administrator credential on unused account.');
+        }
+      }
     }
 
     // Seed sample role accounts for testing if users table has only admin
@@ -462,11 +476,11 @@ export async function initializeDatabase() {
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
       `, [companyId, 'auditor', userHash, 'Sarah Jenkins', 'readonly', 's.jenkins@apex.corp', true, 'EMP-1008', false]);
 
-      console.log(`[PeopleDesk Security] Seeded standard role accounts: hr_lead (HR), payroll_mgr (Payroll), auditor (Read-Only)`);
+      console.log(`[Employee Database Studio Security] Seeded standard role accounts: hr_lead (HR), payroll_mgr (Payroll), auditor (Read-Only)`);
     }
 
-    console.log('[PeopleDesk DB] Database schema and initial credentials successfully initialized.');
+    console.log('[Employee Database Studio DB] Database schema and initial credentials successfully initialized.');
   } catch (err) {
-    console.error('[PeopleDesk DB] Database initialization error:', err);
+    console.error('[Employee Database Studio DB] Database initialization error:', err);
   }
 }

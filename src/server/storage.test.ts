@@ -57,7 +57,7 @@ test('SupabaseStorageService structured path generation across 4 buckets', () =>
 test('SupabaseStorageService resilient fallback upload, signed url, download and delete', async () => {
   const bucket = STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS;
   const storagePath = '1/test_emp/records/test_doc.txt';
-  const testBuffer = Buffer.from('PeopleDesk Studio Secure Document Test Payload', 'utf-8');
+  const testBuffer = Buffer.from('Employee Database Studio Secure Document Test Payload', 'utf-8');
 
   // 1. Upload
   const uploadRes = await supabaseStorage.uploadObject(bucket, storagePath, testBuffer, 'text/plain');
@@ -69,7 +69,7 @@ test('SupabaseStorageService resilient fallback upload, signed url, download and
 
   // 3. Download
   const downloadRes = await supabaseStorage.downloadObject(bucket, uploadRes.path);
-  assert.strictEqual(downloadRes.buffer.toString('utf-8'), 'PeopleDesk Studio Secure Document Test Payload');
+  assert.strictEqual(downloadRes.buffer.toString('utf-8'), 'Employee Database Studio Secure Document Test Payload');
   assert.ok(downloadRes.mimeType === 'application/octet-stream' || downloadRes.mimeType === 'text/plain');
 
   // 4. Delete

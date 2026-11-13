@@ -56,6 +56,7 @@ import {
 } from '../utils/columnDetector';
 import { localDB } from '../utils/dbStorage';
 import { useTheme } from '../context/ThemeContext';
+import { apiClient } from '../utils/apiClient';
 
 interface ImportViewProps {
   onDataLoaded: (records: EmployeeRecord[], fileName: string) => void;
@@ -198,7 +199,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
       // Upload file to import-files bucket via backend storage API
       try {
         const fileObj = new File([new Uint8Array(buffer)], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        const token = apiClient.getToken();
         const formData = new FormData();
         formData.append('file', fileObj);
         formData.append('year', String(new Date().getFullYear()));
@@ -1136,7 +1137,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                     <div className="text-base font-bold text-emerald-400 mt-0.5">
                       {columnControls.filter(c => c.isStandard).length}
                     </div>
-                    <div className="text-[10px] text-zinc-500 mt-0.5">Recognized PeopleDesk fields</div>
+                    <div className="text-[10px] text-zinc-500 mt-0.5">Recognized Employee Database Studio fields</div>
                   </div>
 
                   <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
@@ -1320,7 +1321,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                       <th className="p-3 border-b dark:border-[#222226] border-[#E4E4E7]">Fetch?</th>
                       <th className="p-3 border-b dark:border-[#222226] border-[#E4E4E7]">Excel Column Header</th>
                       <th className="p-3 border-b dark:border-[#222226] border-[#E4E4E7]">Sample Cell Value</th>
-                      <th className="p-3 border-b dark:border-[#222226] border-[#E4E4E7]">Suggested PeopleDesk Field</th>
+                      <th className="p-3 border-b dark:border-[#222226] border-[#E4E4E7]">Suggested Employee Database Studio Field</th>
                       <th className="p-3 border-b dark:border-[#222226] border-[#E4E4E7]">Mapping Status</th>
                       <th className="p-3 border-b dark:border-[#222226] border-[#E4E4E7]">Destination</th>
                       <th className="p-3 border-b dark:border-[#222226] border-[#E4E4E7]">Field Type</th>
@@ -1380,7 +1381,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                               : <span className="italic text-zinc-600">(empty)</span>}
                           </td>
 
-                          {/* Suggested PeopleDesk Field Selector */}
+                          {/* Suggested Employee Database Studio Field Selector */}
                           <td className="p-3">
                             <select
                               value={ctrl.suggestedField || ''}
@@ -1521,13 +1522,13 @@ export const ImportView: React.FC<ImportViewProps> = ({
                 <span>Additional / Custom Excel Fields Management</span>
               </h3>
               <p className="text-xs text-zinc-400 mt-1">
-                PeopleDesk Studio detected non-standard headers in your file. Configure how these additional fields should be typed, stored, and displayed on payslips.
+                Employee Database Studio detected non-standard headers in your file. Configure how these additional fields should be typed, stored, and displayed on payslips.
               </p>
             </div>
 
             {detectedExtraColumns.length === 0 ? (
               <div className="p-8 rounded-xl border text-center text-xs text-zinc-500 dark:border-[#222226] border-[#E4E4E7]">
-                All detected columns in this workbook map cleanly to standard PeopleDesk fields. No additional custom fields require configuration.
+                All detected columns in this workbook map cleanly to standard Employee Database Studio fields. No additional custom fields require configuration.
               </div>
             ) : (
               <div className="space-y-4">
@@ -1750,7 +1751,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                 <span>Loss of Pay (LOP) Workflow & Precedence</span>
               </h3>
               <p className="text-xs text-zinc-400">
-                PeopleDesk Studio strictly separates <strong className="text-white">LOP Days</strong> (attendance count) from <strong className="text-white">LOP Amount</strong> (deduction currency). Choose the authoritative source for this payroll run:
+                Employee Database Studio strictly separates <strong className="text-white">LOP Days</strong> (attendance count) from <strong className="text-white">LOP Amount</strong> (deduction currency). Choose the authoritative source for this payroll run:
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

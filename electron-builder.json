@@ -1,8 +1,8 @@
 {
   "$schema": "https://raw.githubusercontent.com/electron-userland/electron-builder/master/packages/app-builder-lib/scheme.json",
   "appId": "com.payslipstudio.app",
-  "productName": "PeopleDesk Studio",
-  "copyright": "Copyright © 2026 PeopleDesk Studio",
+  "productName": "Employee Database Studio",
+  "copyright": "Copyright © 2026 Employee Database Studio",
   "directories": {
     "output": "release",
     "buildResources": "build"
@@ -27,7 +27,7 @@
       }
     ],
     "icon": "build/icon.ico",
-    "legalTrademarks": "PeopleDesk Studio"
+    "legalTrademarks": "Employee Database Studio"
   },
   "nsis": {
     "oneClick": false,
@@ -35,11 +35,11 @@
     "allowToChangeInstallationDirectory": true,
     "createDesktopShortcut": true,
     "createStartMenuShortcut": true,
-    "shortcutName": "PeopleDesk Studio",
-    "uninstallDisplayName": "PeopleDesk Studio",
+    "shortcutName": "Employee Database Studio",
+    "uninstallDisplayName": "Employee Database Studio",
     "deleteAppDataOnUninstall": false
   },
   "portable": {
-    "artifactName": "PeopleDeskStudio-Portable-${version}.exe"
+    "artifactName": "EmployeeDatabaseStudio-Portable-${version}.exe"
   }
 }

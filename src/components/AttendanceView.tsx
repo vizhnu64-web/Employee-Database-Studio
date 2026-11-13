@@ -358,7 +358,7 @@ export const AttendanceView: React.FC = () => {
     const encodedUri = encodeURI(csvContent);
     const link = document.createElement('a');
     link.setAttribute('href', encodedUri);
-    link.setAttribute('download', `PeopleDeskStudio_${reportType}_Attendance_${selectedMonth}_${selectedYear}.csv`);
+    link.setAttribute('download', `EmployeeDatabaseStudio_${reportType}_Attendance_${selectedMonth}_${selectedYear}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);

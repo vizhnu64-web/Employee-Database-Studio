@@ -783,11 +783,11 @@ class LocalDatabase {
     const importHistory = await this.getImportHistory();
 
     const backupData = {
-      app: 'PeopleDesk Studio',
+      app: 'Employee Database Studio',
       version: '1.2.0',
       exportedAt: new Date().toISOString(),
-      platform: 'Windows Desktop / Local',
-      storageLocation: '%APPDATA%/PeopleDeskStudio/database.sqlite',
+      platform: 'Enterprise Cloud / Local',
+      storageLocation: '%APPDATA%/EmployeeDatabaseStudio/database.sqlite',
       data: {
         settings,
         employees,

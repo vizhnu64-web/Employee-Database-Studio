@@ -24,6 +24,35 @@ export interface ManagedUser {
 }
 
 class ApiClient {
+  private unauthorizedListeners = new Set<() => void>();
+
+  onUnauthorized(listener: () => void): () => void {
+    this.unauthorizedListeners.add(listener);
+    return () => {
+      this.unauthorizedListeners.delete(listener);
+    };
+  }
+
+  private clearLocalSession() {
+    if (typeof localStorage !== 'undefined') {
+      localStorage.removeItem('peopledesk_auth_token');
+      localStorage.removeItem('auth_token');
+      localStorage.removeItem('peopledesk_user');
+    }
+    if (typeof sessionStorage !== 'undefined') {
+      sessionStorage.removeItem('auth_token');
+    }
+  }
+
+  private notifyUnauthorized() {
+    this.clearLocalSession();
+    this.unauthorizedListeners.forEach(cb => {
+      try {
+        cb();
+      } catch {}
+    });
+  }
+
   getDefaultServerUrl(): string {
     if (typeof window !== 'undefined' && window.location && window.location.origin) {
       return `${window.location.origin}/api`;
@@ -82,7 +111,7 @@ class ApiClient {
     }
   }
 
-  async request(endpoint: string, options: RequestInit & { _retriedAuth?: boolean } = {}): Promise<any> {
+  async request(endpoint: string, options: RequestInit = {}): Promise<any> {
     const token = this.getToken();
     const baseUrl = this.getServerUrl();
     const defaultUrl = this.getDefaultServerUrl();
@@ -104,26 +133,13 @@ class ApiClient {
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        // If 401 Unauthorized, attempt one-time silent login as admin and retry
-        if (response.status === 401 && !options._retriedAuth) {
-          try {
-            const loginRes = await fetch(`${baseUrl}/auth/login`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: 'admin', password: 'admin123' })
-            });
-            if (loginRes.ok) {
-              const loginData = await loginRes.json();
-              if (loginData.success && loginData.token) {
-                if (typeof localStorage !== 'undefined') {
-                  localStorage.setItem('peopledesk_auth_token', loginData.token);
-                  localStorage.setItem('auth_token', loginData.token);
-                  localStorage.setItem('peopledesk_user', JSON.stringify(loginData.user));
-                }
-                return this.request(endpoint, { ...options, _retriedAuth: true });
-              }
-            }
-          } catch {}
+        if (
+          response.status === 401 &&
+          !endpoint.startsWith('/auth/login') &&
+          !endpoint.startsWith('/auth/change-password') &&
+          !endpoint.startsWith('/auth/logout')
+        ) {
+          this.notifyUnauthorized();
         }
 
         const errorMsg = data.error || `Server error (${response.status})`;
@@ -155,7 +171,7 @@ class ApiClient {
       }
 
       if (isNetworkFail) {
-        const networkErr = new Error(`Cannot connect to PeopleDesk server at "${baseUrl}". Please verify the server is running and accessible on the local network.`);
+        const networkErr = new Error(`Cannot connect to Employee Database Studio server at "${baseUrl}". Please verify the server is running and accessible on the local network.`);
         (networkErr as any).isNetworkError = true;
         (networkErr as any).configuredUrl = baseUrl;
         (networkErr as any).defaultUrl = defaultUrl;
@@ -172,6 +188,7 @@ class ApiClient {
     });
     if (res.success && res.token && typeof localStorage !== 'undefined') {
       localStorage.setItem('peopledesk_auth_token', res.token);
+      localStorage.setItem('auth_token', res.token);
       localStorage.setItem('peopledesk_user', JSON.stringify(res.user));
     }
     return res;
@@ -188,7 +205,7 @@ class ApiClient {
       }
       throw new Error('Invalid verification response');
     } catch (err) {
-      this.logout();
+      this.clearLocalSession();
       throw err;
     }
   }
@@ -251,17 +268,13 @@ class ApiClient {
   }
 
   logout() {
-    try {
-      this.request('/auth/logout', { method: 'POST' }).catch(() => {});
-    } catch {}
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('peopledesk_auth_token');
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('peopledesk_user');
+    const token = this.getToken();
+    if (token) {
+      try {
+        this.request('/auth/logout', { method: 'POST' }).catch(() => {});
+      } catch {}
     }
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.removeItem('auth_token');
-    }
+    this.clearLocalSession();
   }
 
   async getHealth(): Promise<any> {

@@ -539,7 +539,7 @@ export const LayoutEditorView: React.FC<LayoutEditorViewProps> = ({
               <div className="flex items-center space-x-2">
                 {formData.showLogo && (
                   <div className="w-8 h-8 rounded bg-zinc-200 flex items-center justify-center font-bold text-zinc-700 text-xs">
-                    TBT
+                    {settings.companyName ? settings.companyName.slice(0, 3).toUpperCase() : 'EDS'}
                   </div>
                 )}
                 <div>

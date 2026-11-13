@@ -825,7 +825,7 @@ export const BrandColorCustomizer: React.FC<BrandColorCustomizerProps> = ({
             </div>
 
             <p className="text-[11px] text-zinc-500 leading-relaxed">
-              Every colour change updates this preview card and the entire PeopleDesk Studio interface instantly.
+              Every colour change updates this preview card and the entire Employee Database Studio interface instantly.
             </p>
 
             {/* Preview Section 1: Buttons Showcase */}

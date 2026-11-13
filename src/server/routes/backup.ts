@@ -15,7 +15,7 @@ router.get('/export', authenticateToken, requireRole(['admin']), async (req: Aut
     const docRes = await query('SELECT id, employee_id, category, title, file_name FROM employee_documents WHERE company_id = $1', [companyId]);
 
     const backupPayload = {
-      app: 'PeopleDesk Studio Enterprise',
+      app: 'Employee Database Studio Enterprise',
       version: '1.0.0',
       companyId,
       exportedAt: new Date().toISOString(),
@@ -29,7 +29,7 @@ router.get('/export', authenticateToken, requireRole(['admin']), async (req: Aut
     };
 
     res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Content-Disposition', `attachment; filename=PeopleDeskStudio_Backup_${new Date().toISOString().slice(0, 10)}.json`);
+    res.setHeader('Content-Disposition', `attachment; filename=EmployeeDatabaseStudio_Backup_${new Date().toISOString().slice(0, 10)}.json`);
     res.send(JSON.stringify(backupPayload, null, 2));
   } catch (err: any) {
     res.status(500).json({ success: false, error: err.message });

@@ -29,6 +29,7 @@ import {
 } from '../../utils/employeeDb';
 import { useTheme } from '../../context/ThemeContext';
 import { DocumentPreviewModal } from './DocumentPreviewModal';
+import { apiClient } from '../../utils/apiClient';
 
 interface EmployeeDocumentsSectionProps {
   employee: DirectoryEmployee;
@@ -162,7 +163,7 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
 
         // Direct upload to Supabase Storage via backend API
         try {
-          const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+          const token = apiClient.getToken();
           const formData = new FormData();
           formData.append('file', selectedFile);
           formData.append('employeeId', employee.employeeId);
@@ -241,7 +242,7 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
   const handleDelete = async (doc: EmployeeDocument) => {
     if (confirm(`Are you sure you want to delete "${doc.title}"? This cannot be undone.`)) {
       try {
-        const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+        const token = apiClient.getToken();
         await fetch(`/api/documents/${doc.id}`, {
           method: 'DELETE',
           headers: token ? { Authorization: `Bearer ${token}` } : {}

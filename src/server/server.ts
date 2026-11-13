@@ -53,7 +53,7 @@ app.use('/api/storage', storageRoutes);
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
-    app: 'PeopleDesk Studio Enterprise LAN Server',
+    app: 'Employee Database Studio Enterprise Server',
     version: '1.0.0',
     timestamp: new Date().toISOString()
   });
@@ -61,7 +61,7 @@ app.get('/api/health', (req, res) => {
 
 // Automated Daily Backup Cron (Default 8 PM daily)
 cron.schedule('0 20 * * *', () => {
-  console.log('[PeopleDesk Backup] Executing scheduled daily database and document backup at 8 PM...');
+  console.log('[Employee Database Studio Backup] Executing scheduled daily database and document backup at 8 PM...');
   // Backup routine execution
 });
 
@@ -69,15 +69,15 @@ function checkDeploymentEnvironment() {
   const requiredVars = ['DATABASE_URL', 'JWT_SECRET', 'INITIAL_ADMIN_PASSWORD'];
   const missing = requiredVars.filter(v => !process.env[v]);
   if (missing.length > 0) {
-    console.warn(`[PeopleDesk Security] Warning: The following required environment variables are not set: ${missing.join(', ')}.`);
+    console.warn(`[Employee Database Studio Security] Warning: The following required environment variables are not set: ${missing.join(', ')}.`);
   }
 
   // SMTP is optional during initial deployment.
   const hasSmtp = Boolean(process.env.SMTP_HOST && (process.env.SMTP_SENDER_EMAIL || process.env.SMTP_USER));
   if (!hasSmtp) {
-    console.log('[PeopleDesk Email] Initial deployment: SMTP environment variables are not configured. Email service is unconfigured until an authorized administrator configures SMTP in Company Settings.');
+    console.log('[Employee Database Studio Email] Initial deployment: SMTP environment variables are not configured. Email service is unconfigured until an authorized administrator configures SMTP in Company Settings.');
   } else {
-    console.log(`[PeopleDesk Email] Optional SMTP environment configuration detected for host: ${process.env.SMTP_HOST}`);
+    console.log(`[Employee Database Studio Email] Optional SMTP environment configuration detected for host: ${process.env.SMTP_HOST}`);
   }
 }
 
@@ -86,10 +86,10 @@ async function startServer() {
   await initializeDatabase();
 
   app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`[PeopleDesk Server] Enterprise LAN backend running successfully on port ${PORT}`);
+    console.log(`[Employee Database Studio Server] Enterprise backend running successfully on port ${PORT}`);
   });
 }
 
 startServer().catch(err => {
-  console.error('[PeopleDesk Server] Failed to start backend server:', err);
+  console.error('[Employee Database Studio Server] Failed to start backend server:', err);
 });

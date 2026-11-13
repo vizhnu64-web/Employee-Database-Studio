@@ -311,7 +311,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `PeopleDeskStudio_${formData.companyName.replace(/[^a-zA-Z0-9]/g, '_')}_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+    a.download = `EmployeeDatabaseStudio_${formData.companyName.replace(/[^a-zA-Z0-9]/g, '_')}_Backup_${new Date().toISOString().slice(0, 10)}.json`;
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
@@ -347,7 +347,7 @@ export const SettingsView: React.FC<SettingsViewProps> = ({
   };
 
   const presetColors = [
-    { name: 'PeopleDesk Crimson', hex: '#CB1417' },
+    { name: 'Enterprise Crimson', hex: '#CB1417' },
     { name: 'Corporate Navy', hex: '#1E3A8A' },
     { name: 'Emerald Forest', hex: '#059669' },
     { name: 'Royal Purple', hex: '#7C3AED' },

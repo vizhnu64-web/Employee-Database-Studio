@@ -175,7 +175,7 @@ router.put('/settings', authenticateToken, requireRole(['admin', 'super_admin'])
       smtpUser?.trim() || '',
       finalPassword || '',
       senderEmail.trim(),
-      senderName?.trim() || 'PeopleDesk Studio HR',
+      senderName?.trim() || 'Employee Database Studio HR',
       isVerified
     ]);
 
@@ -354,7 +354,7 @@ router.post('/send', authenticateToken, emailSendLimiter, async (req: AuthReques
     }
 
     const mailOptions = {
-      from: `"${config.senderName || 'PeopleDesk Studio HR'}" <${config.senderEmail}>`,
+      from: `"${config.senderName || 'Employee Database Studio HR'}" <${config.senderEmail}>`,
       to: recipientEmail,
       subject,
       text: bodyText,

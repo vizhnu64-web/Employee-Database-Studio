@@ -230,4 +230,11 @@ test('respects showCurrencySymbol setting when enabled and disabled', () => {
   assert.equal(sampleRecord.calculatedGross, 125000);
 });
 
+test('embeds Employee Database Studio in PDF document metadata and footer', () => {
+  const doc = generatePayslipPdf(sampleRecord, DEFAULT_COMPANY_SETTINGS, 'October', 2026);
+  const rawPdf = doc.output('datauristring');
+  const decoded = Buffer.from(rawPdf.split(',')[1], 'base64').toString('latin1');
+  assert.ok(decoded.includes('Employee Database Studio'), 'PDF output must embed Employee Database Studio metadata/footer');
+});
+
 

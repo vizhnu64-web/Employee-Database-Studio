@@ -11,6 +11,7 @@ import { CompanySettings, EmployeeRecord, GeneratedPayslipRecord } from '../type
 import { localDB } from '../utils/dbStorage';
 import { generatePayslipPdf } from '../utils/pdfGenerator';
 import { useTheme } from '../context/ThemeContext';
+import { apiClient } from '../utils/apiClient';
 
 interface HistoryViewProps {
   history: GeneratedPayslipRecord[];
@@ -55,7 +56,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
 
   const handleDownloadHistoricalPdf = async (record: GeneratedPayslipRecord) => {
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      const token = apiClient.getToken();
       const res = await fetch(`/api/payroll/payslip-pdf/${record.id}`, {
         headers: token ? { Authorization: `Bearer ${token}` } : {}
       });

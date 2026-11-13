@@ -44,6 +44,7 @@ export const UserManagementView: React.FC = () => {
   const [resetPasswordUser, setResetPasswordUser] = useState<ManagedUser | null>(null);
   const [deleteConfirmUser, setDeleteConfirmUser] = useState<ManagedUser | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [modalError, setModalError] = useState<string | null>(null);
 
   // Form states for Add User
@@ -65,24 +66,36 @@ export const UserManagementView: React.FC = () => {
   };
 
   const fetchUsers = async () => {
+    if (!apiClient.getToken()) {
+      setIsLoading(false);
+      setErrorBanner('Authentication required. Please sign in to load user accounts.');
+      return;
+    }
     setIsLoading(true);
+    setErrorBanner(null);
     try {
       const data = await apiClient.getUsers();
       setUsers(data);
     } catch (err: any) {
       console.error('Failed to fetch users:', err);
-      showToastMsg(err.message || 'Error loading users from central server.');
+      const msg = err.message || 'Error loading users from central server.';
+      setErrorBanner(msg);
+      showToastMsg(msg);
     } finally {
       setIsLoading(false);
     }
   };
 
   const fetchAuditLogs = async () => {
+    if (!apiClient.getToken()) {
+      return;
+    }
     try {
       const logs = await apiClient.getAuditLogs();
       setAuditLogs(logs);
     } catch (err: any) {
       console.error('Failed to fetch audit logs:', err);
+      setErrorBanner(prev => prev || err.message || 'Error loading security audit logs.');
     }
   };
 
@@ -323,6 +336,24 @@ export const UserManagementView: React.FC = () => {
         </button>
       </div>
 
+      {errorBanner && (
+        <div className={`p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs border transition ${
+          isDark ? 'bg-rose-950/30 border-rose-800 text-rose-200' : 'bg-rose-50 border-rose-300 text-rose-800'
+        }`}>
+          <div className="flex items-center space-x-2.5">
+            <AlertTriangle className="w-4 h-4 text-rose-500 shrink-0" />
+            <span className="font-medium">{errorBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => { fetchUsers(); fetchAuditLogs(); }}
+            className="px-2.5 py-1 rounded-md border border-rose-500/40 hover:bg-rose-500/10 font-semibold text-[11px] cursor-pointer shrink-0"
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
       {toast && (
         <div className={`p-3.5 rounded-xl flex items-center space-x-3 text-xs border transition animate-in fade-in ${
           isDark ? 'bg-[#0E2013] border-[#1D4A27] text-[#86EFAC]' : 'bg-[#F0FDF4] border-[#BBF7D0] text-[#166534]'
@@ -473,7 +504,7 @@ export const UserManagementView: React.FC = () => {
                       </span>
                     </td>
                     <td className="p-3 font-mono text-zinc-400">{log.entity_id || '—'}</td>
-                    <td className="p-3 text-zinc-300">{log.details}</td>
+                    <td className={`p-3 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>{log.details}</td>
                     <td className="p-3 font-mono text-zinc-500">{log.ip_address}</td>
                   </tr>
                 ))
@@ -798,8 +829,8 @@ export const UserManagementView: React.FC = () => {
               <AlertTriangle className="w-5 h-5 shrink-0" />
               <h3 className="text-sm font-bold">Delete User Account?</h3>
             </div>
-            <p className="text-xs text-zinc-400">
-              Are you sure you want to delete user <strong className="text-white">{deleteConfirmUser.username}</strong>? This user will be permanently revoked from the central database.
+            <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+              Are you sure you want to delete user <strong className={isDark ? 'text-white' : 'text-black'}>{deleteConfirmUser.username}</strong>? This user will be permanently revoked from the central database.
             </p>
             <div className="flex items-center justify-end space-x-2 pt-2 border-t dark:border-zinc-800 border-zinc-200">
               <button

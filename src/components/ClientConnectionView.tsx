@@ -23,7 +23,7 @@ export const ClientConnectionView: React.FC = () => {
 
       setSessions(sessRes.sessions || []);
       setWorkspace(wsRes.workspace || {
-        name: 'PeopleDesk Enterprise Workspace',
+        name: 'Employee Database Studio Workspace',
         address: 'Cloud Operations Center',
         currency: 'INR',
         currencySymbol: '₹'

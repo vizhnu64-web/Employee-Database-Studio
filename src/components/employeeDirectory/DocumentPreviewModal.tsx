@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { X, Download, ExternalLink, FileText, Image as ImageIcon, AlertCircle } from 'lucide-react';
 import { EmployeeDocument } from '../../types/employeeDirectory';
 import { useTheme } from '../../context/ThemeContext';
+import { apiClient } from '../../utils/apiClient';
 
 interface DocumentPreviewModalProps {
   document: EmployeeDocument;
@@ -39,7 +40,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ docu
           if (active) setBlobUrl(createdUrl);
         } else if (document.id || document.storagePath) {
           // Fetch short-lived signed URL or direct download stream from backend
-          const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+          const token = apiClient.getToken();
           const previewEndpoint = document.id ? `/api/documents/preview/${document.id}` : null;
           
           let signedUrl: string | null = null;

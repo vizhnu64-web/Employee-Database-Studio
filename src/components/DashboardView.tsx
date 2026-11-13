@@ -87,7 +87,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
               Payroll Workspace: {selectedMonth} {selectedYear}
             </h1>
             <p className={`text-xs mt-1 max-w-xl ${isDark ? 'text-[#A1A1AA]' : 'text-[#52525B]'}`}>
-              {settings.companyName} • Deterministic payroll math audit, vector PDF payslips, and ZIP export.
+              {settings.companyName} • Employee Database Studio — Deterministic payroll math audit, vector PDF payslips, and ZIP export.
             </p>
           </div>
         </div>

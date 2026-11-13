@@ -142,9 +142,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
             className="w-6 h-6 rounded-md flex items-center justify-center font-black text-xs shadow-xs"
             style={{ backgroundColor: 'var(--brand-primary)', color: 'var(--brand-primary-text)' }}
           >
-            PDS
+            EDS
           </div>
-          <span className="font-bold tracking-tight text-sm">PeopleDesk Studio</span>
+          <span className="font-bold tracking-tight text-sm">Employee Database Studio</span>
           <span className="text-[10px] px-2 py-0.5 rounded-full font-semibold uppercase tracking-wider bg-blue-500/10 text-blue-500 border border-blue-500/20">
             Enterprise Multi-User
           </span>
@@ -170,7 +170,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
 
       {/* Server Config Collapsible Bar */}
       {showServerConfig && (
-        <div className="w-full max-w-md mx-auto mb-4 p-4 rounded-xl border shadow-lg transition-all animate-in fade-in slide-in-from-top-2 bg-white dark:bg-[#121214] dark:border-zinc-800 border-zinc-200">
+        <div className={`w-full max-w-md mx-auto mb-4 p-4 rounded-xl border shadow-lg transition-all animate-in fade-in slide-in-from-top-2 ${
+          isDark ? 'bg-[#121214] border-zinc-800 text-zinc-100' : 'bg-white border-zinc-200 text-zinc-900'
+        }`}>
           <div className="flex items-center justify-between mb-2">
             <span className="text-xs font-bold flex items-center space-x-1.5">
               <Server className="w-3.5 h-3.5 text-blue-500" />
@@ -184,7 +186,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
             </button>
           </div>
           <p className="text-[11px] text-zinc-500 dark:text-zinc-400 mb-3">
-            Clients on the local network connect to the primary PeopleDesk server host (e.g., <code>http://192.168.1.100:3000/api</code>).
+            Clients on the local network connect to the primary Employee Database Studio server host (e.g., <code>http://192.168.1.100:3000/api</code>).
           </p>
           <div className="flex items-center space-x-2">
             <input
@@ -239,7 +241,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
             )}
 
             <h1 className="text-lg font-bold tracking-tight">
-              {companySettings.companyName || 'PeopleDesk Studio'}
+              {companySettings.companyName || 'Employee Database Studio'}
             </h1>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 font-medium">
               Central LAN Multi-User Authentication
@@ -354,7 +356,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
 
             {/* Remember Username Checkbox */}
             <div className="flex items-center justify-between text-xs pt-1">
-              <label className="flex items-center space-x-2 cursor-pointer text-zinc-600 dark:text-zinc-400">
+              <label className={`flex items-center space-x-2 cursor-pointer ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                 <input
                   type="checkbox"
                   checked={rememberUsername}
@@ -383,7 +385,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
               ) : (
                 <>
                   <ShieldCheck className="w-4 h-4" />
-                  <span>Sign In to PeopleDesk</span>
+                  <span>Sign In to Employee Database Studio</span>
                   <ArrowRight className="w-3.5 h-3.5 ml-1" />
                 </>
               )}
@@ -404,7 +406,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
           )}
 
           {/* Quick-Fill Demonstration Roles (Convenience for Testing) */}
-          <div className="mt-6 pt-5 border-t border-zinc-200 dark:border-zinc-800 text-[11px]">
+          <div className={`mt-6 pt-5 border-t text-[11px] ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
             <span className="block text-zinc-400 font-semibold mb-2">
               Standard Role Accounts (Testing & Evaluation):
             </span>
@@ -412,7 +414,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
               <button
                 type="button"
                 onClick={() => handleQuickFill('admin', 'admin123')}
-                className="text-left p-1.5 rounded border text-[10px] hover:border-blue-500 transition dark:border-zinc-800 border-zinc-200 dark:bg-black/30 bg-zinc-50 cursor-pointer"
+                className={`text-left p-2 rounded-lg border text-[10px] hover:border-blue-500 transition cursor-pointer ${
+                  isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                }`}
               >
                 <div className="font-bold text-blue-500">Administrator</div>
                 <div className="text-zinc-500 font-mono">admin / admin123</div>
@@ -420,7 +424,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
               <button
                 type="button"
                 onClick={() => handleQuickFill('hr_lead', 'Password@123')}
-                className="text-left p-1.5 rounded border text-[10px] hover:border-emerald-500 transition dark:border-zinc-800 border-zinc-200 dark:bg-black/30 bg-zinc-50 cursor-pointer"
+                className={`text-left p-2 rounded-lg border text-[10px] hover:border-emerald-500 transition cursor-pointer ${
+                  isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                }`}
               >
                 <div className="font-bold text-emerald-500">HR Specialist</div>
                 <div className="text-zinc-500 font-mono">hr_lead / Password@123</div>
@@ -428,7 +434,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
               <button
                 type="button"
                 onClick={() => handleQuickFill('payroll_mgr', 'Password@123')}
-                className="text-left p-1.5 rounded border text-[10px] hover:border-amber-500 transition dark:border-zinc-800 border-zinc-200 dark:bg-black/30 bg-zinc-50 cursor-pointer"
+                className={`text-left p-2 rounded-lg border text-[10px] hover:border-amber-500 transition cursor-pointer ${
+                  isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                }`}
               >
                 <div className="font-bold text-amber-500">Payroll Specialist</div>
                 <div className="text-zinc-500 font-mono">payroll_mgr / Password@123</div>
@@ -436,7 +444,9 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
               <button
                 type="button"
                 onClick={() => handleQuickFill('auditor', 'Password@123')}
-                className="text-left p-1.5 rounded border text-[10px] hover:border-purple-500 transition dark:border-zinc-800 border-zinc-200 dark:bg-black/30 bg-zinc-50 cursor-pointer"
+                className={`text-left p-2 rounded-lg border text-[10px] hover:border-purple-500 transition cursor-pointer ${
+                  isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                }`}
               >
                 <div className="font-bold text-purple-500">Read-Only Auditor</div>
                 <div className="text-zinc-500 font-mono">auditor / Password@123</div>
@@ -448,7 +458,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
 
       {/* Footer Info */}
       <div className="w-full max-w-6xl mx-auto py-2 text-center text-[11px] text-zinc-500 dark:text-zinc-500">
-        PeopleDesk Studio Enterprise Edition • 100% Offline Local & Central LAN Data Security
+        Employee Database Studio Enterprise Edition • Central Cloud & Local Data Security
       </div>
     </div>
   );

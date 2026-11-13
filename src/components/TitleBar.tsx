@@ -66,12 +66,12 @@ export const TitleBar: React.FC<TitleBarProps> = ({
           {companySettings?.logoDataUrl ? (
             <img src={companySettings.logoDataUrl} alt="Logo" className="w-full h-full object-contain p-0.5 bg-white" />
           ) : (
-            <span>PDS</span>
+            <span>EDS</span>
           )}
         </div>
         <div className="truncate">
           <div className="flex items-center space-x-2">
-            <span className="font-semibold text-sm tracking-tight truncate">PeopleDesk Studio</span>
+            <span className="font-semibold text-sm tracking-tight truncate">Employee Database Studio</span>
             <span
               className={`text-[10px] font-medium px-1.5 py-0.5 rounded border hidden sm:inline-block ${
                 isDark

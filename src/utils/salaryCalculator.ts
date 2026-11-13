@@ -61,7 +61,7 @@ export interface CalculatedSalary {
 }
 
 /**
- * Authoritative single payroll calculation engine for PeopleDesk Studio.
+ * Authoritative single payroll calculation engine for Employee Database Studio.
  *
  * STAGE 1: TOTAL GROSS
  * Total Gross = CTC - Employer PF - Employer ESI (if CTC provided)

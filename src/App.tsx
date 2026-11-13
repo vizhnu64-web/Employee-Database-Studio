@@ -25,6 +25,7 @@ import { BackupRestoreView } from './components/BackupRestoreView';
 import { LicenseManagementView } from './components/LicenseManagementView';
 import { PayslipPreviewModal } from './components/PayslipPreviewModal';
 import { ChangePasswordModal } from './components/ChangePasswordModal';
+import { LoginView } from './components/LoginView';
 import { CompanySettings, EmployeeRecord, GeneratedPayslipRecord, PayslipLayoutSettings, DEFAULT_LAYOUT_SETTINGS, EmailSettings, DEFAULT_EMAIL_SETTINGS } from './types/payroll';
 import { DirectoryEmployee, EmployeeDocument } from './types/employeeDirectory';
 import { DEFAULT_COMPANY_SETTINGS, localDB } from './utils/dbStorage';
@@ -51,9 +52,45 @@ function AppContent() {
   const [toastNotification, setToastNotification] = useState<string | null>(null);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
   const [isClearingData, setIsClearingData] = useState(false);
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => apiClient.getCurrentUser());
+  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => (
+    apiClient.getToken() ? apiClient.getCurrentUser() : null
+  ));
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
+
+  // Verify existing auth token and listen for 401 session expiration
+  useEffect(() => {
+    let active = true;
+    const unsubscribe = apiClient.onUnauthorized(() => {
+      if (active) {
+        setCurrentUser(null);
+        setToastNotification('Session expired or authentication required. Please sign in.');
+      }
+    });
+
+    async function validateSession() {
+      const token = apiClient.getToken();
+      if (!token) {
+        if (active) setCurrentUser(null);
+        return;
+      }
+      try {
+        const res = await apiClient.verifyToken();
+        if (active && res.success && res.user) {
+          setCurrentUser(res.user);
+        }
+      } catch {
+        if (active) setCurrentUser(null);
+      }
+    }
+
+    validateSession();
+
+    return () => {
+      active = false;
+      unsubscribe();
+    };
+  }, []);
 
   // Initialize data from local SQLite / IndexedDB
   useEffect(() => {
@@ -354,6 +391,7 @@ function AppContent() {
   const handleLogout = () => {
     apiClient.logout();
     setCurrentUser(null);
+    setActiveTab('dashboard');
     showToast('Logged out of session.');
   };
 
@@ -361,11 +399,24 @@ function AppContent() {
     return (
       <div className={`h-screen w-screen flex flex-col items-center justify-center font-sans ${isDark ? 'bg-[#000000] text-white' : 'bg-[#FFFFFF] text-black'}`}>
         <div className="w-12 h-12 rounded-xl bg-[#CB1417] flex items-center justify-center text-white font-bold text-sm tracking-wider shadow-lg shadow-red-900/40 animate-pulse mb-3">
-          TBT
+          EDS
         </div>
-        <p className="text-xs font-semibold tracking-wide">Initializing PeopleDesk Studio...</p>
-        <p className="text-[11px] opacity-60 mt-1">Tamil Business Tribe Edition</p>
+        <p className="text-xs font-semibold tracking-wide">Initializing Employee Database Studio...</p>
+        <p className="text-[11px] opacity-60 mt-1">Enterprise Cloud Edition</p>
       </div>
+    );
+  }
+
+  if (!currentUser) {
+    return (
+      <LoginView
+        companySettings={settings}
+        onLoginSuccess={(user) => {
+          setCurrentUser(user);
+          setActiveTab('dashboard');
+          showToast(`Signed in as ${user.fullName}.`);
+        }}
+      />
     );
   }
 

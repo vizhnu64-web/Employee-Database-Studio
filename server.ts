@@ -63,7 +63,7 @@ app.use('/api/storage', storageRoutes);
 app.get('/api/health', (req, res) => {
   res.json({
     status: 'healthy',
-    app: 'PeopleDesk Studio Enterprise Cloud',
+    app: 'Employee Database Studio Enterprise Cloud',
     version: '1.0.0',
     mode: process.env.NODE_ENV || 'development',
     timestamp: new Date().toISOString()
@@ -74,15 +74,15 @@ function checkDeploymentEnvironment() {
   const requiredVars = ['DATABASE_URL', 'JWT_SECRET', 'INITIAL_ADMIN_PASSWORD'];
   const missing = requiredVars.filter(v => !process.env[v]);
   if (missing.length > 0) {
-    console.warn(`[PeopleDesk Security] Warning: The following required environment variables are not set: ${missing.join(', ')}.`);
+    console.warn(`[Employee Database Studio Security] Warning: The following required environment variables are not set: ${missing.join(', ')}.`);
   }
 
   // SMTP is optional during initial deployment. No fake or hardcoded fallback credentials.
   const hasSmtp = Boolean(process.env.SMTP_HOST && (process.env.SMTP_SENDER_EMAIL || process.env.SMTP_USER));
   if (!hasSmtp) {
-    console.log('[PeopleDesk Email] Initial deployment: SMTP environment variables are not configured. Email service is unconfigured until an authorized administrator configures SMTP in Company Settings.');
+    console.log('[Employee Database Studio Email] Initial deployment: SMTP environment variables are not configured. Email service is unconfigured until an authorized administrator configures SMTP in Company Settings.');
   } else {
-    console.log(`[PeopleDesk Email] Optional SMTP environment configuration detected for host: ${process.env.SMTP_HOST}`);
+    console.log(`[Employee Database Studio Email] Optional SMTP environment configuration detected for host: ${process.env.SMTP_HOST}`);
   }
 }
 
@@ -105,14 +105,14 @@ async function startServer() {
   }
 
   app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`[PeopleDesk Studio] Full-Stack Enterprise Server listening on http://0.0.0.0:${PORT}`);
+    console.log(`[Employee Database Studio] Full-Stack Enterprise Server listening on http://0.0.0.0:${PORT}`);
   });
 }
 
 // Only start the standalone server process if run directly
 if (process.env.VERCEL !== '1') {
   startServer().catch(err => {
-    console.error('[PeopleDesk Studio] Server failed to start:', err);
+    console.error('[Employee Database Studio] Server failed to start:', err);
   });
 }
 

@@ -26,7 +26,7 @@ export const BackupRestoreView: React.FC = () => {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `PeopleDeskStudio_LAN_Backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `EmployeeDatabaseStudio_Backup_${new Date().toISOString().slice(0, 10)}.json`;
       document.body.appendChild(a);
       a.click();
       document.body.removeChild(a);
@@ -164,7 +164,7 @@ export const BackupRestoreView: React.FC = () => {
             <input
               type="text"
               readOnly
-              value="%PROGRAMDATA%\PeopleDeskStudio\backups"
+              value="%PROGRAMDATA%\EmployeeDatabaseStudio\backups"
               className={`w-full rounded px-3 py-2 font-mono text-[11px] border opacity-80 ${isDark ? 'bg-zinc-950 border-zinc-800 text-zinc-300' : 'bg-zinc-100 border-zinc-300 text-zinc-700'}`}
             />
             <span className="text-[11px] text-zinc-500 block mt-1">Target folder on primary server host</span>

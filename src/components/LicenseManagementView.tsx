@@ -18,7 +18,7 @@ export const LicenseManagementView: React.FC = () => {
     } catch {
       setLicense({
         isActivated: true,
-        licenseKey: 'PDS-PERP-2026-COMM-8821',
+        licenseKey: 'EDS-PERP-2026-COMM-8821',
         maxClients: 10,
         activatedAt: '2026-01-15',
         status: 'Active (Perpetual LAN Preview)'
@@ -84,7 +84,7 @@ export const LicenseManagementView: React.FC = () => {
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <div>
             <span className={`block font-medium ${isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}>License Key</span>
-            <span className={`font-mono font-bold ${isDark ? 'text-white' : 'text-black'}`}>{license?.licenseKey || 'PDS-PERP-2026-COMM-8821'}</span>
+            <span className={`font-mono font-bold ${isDark ? 'text-white' : 'text-black'}`}>{license?.licenseKey || 'EDS-PERP-2026-COMM-8821'}</span>
           </div>
           <div>
             <span className={`block font-medium ${isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}>Activation Status</span>
@@ -111,7 +111,7 @@ export const LicenseManagementView: React.FC = () => {
             type="text"
             value={keyInput}
             onChange={(e) => setKeyInput(e.target.value)}
-            placeholder="Enter license key (e.g. PDS-XXXX-XXXX)"
+            placeholder="Enter license key (e.g. EDS-XXXX-XXXX)"
             className={`flex-1 rounded px-3 py-2 font-mono border focus:outline-none focus:border-brand-primary ${
               isDark ? 'bg-[#000000] border-[#27272A] text-white' : 'bg-[#FFFFFF] border-[#D4D4D8] text-black'
             }`}

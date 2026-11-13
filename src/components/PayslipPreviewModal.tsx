@@ -232,7 +232,7 @@ export const PayslipPreviewModal: React.FC<PayslipPreviewModalProps> = ({
               Payslip Preview: {employee.employeeId} - {employee.name}
             </h3>
             <span className="text-[11px] px-2 py-0.5 rounded bg-[#CB1417]/10 text-[#CB1417] border border-[#CB1417]/25 font-semibold">
-              TBT A4 Specification
+              A4 Portrait Specification
             </span>
           </div>
 
@@ -267,7 +267,7 @@ export const PayslipPreviewModal: React.FC<PayslipPreviewModalProps> = ({
           </div>
         </div>
 
-        {/* Scrollable A4 Document Sheet: ALWAYS white with black text and TBT #CB1417 accents */}
+        {/* Scrollable A4 Document Sheet: ALWAYS white with black text and #CB1417 brand accents */}
         <div className={`p-6 overflow-y-auto flex justify-center ${isDark ? 'bg-[#000000]' : 'bg-[#F4F4F6]'}`}>
           <div className="bg-[#FFFFFF] text-[#000000] rounded-md shadow-2xl w-full max-w-2xl p-8 border border-[#E5E5E8] text-xs font-sans select-text">
             {/* Payslip Header */}
@@ -432,7 +432,7 @@ export const PayslipPreviewModal: React.FC<PayslipPreviewModalProps> = ({
             )}
 
             <p className="mt-6 text-[9px] text-[#A1A1AA] text-center">
-              This document was generated securely by PeopleDesk Studio for Tamil Business Tribe.
+              This document was generated securely by Employee Database Studio{settings.companyName ? ` for ${settings.companyName}` : ''}.
             </p>
           </div>
         </div>

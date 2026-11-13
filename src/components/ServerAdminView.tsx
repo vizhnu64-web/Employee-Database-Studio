@@ -203,7 +203,7 @@ export const ServerAdminView: React.FC<ServerAdminViewProps> = ({ settings }) =>
           <div className="space-y-2.5">
             <div className="flex items-center justify-between py-1 border-b dark:border-zinc-800 border-zinc-100">
               <span className={isDark ? 'text-zinc-400' : 'text-zinc-600'}>Application Suite</span>
-              <span className="font-semibold">{stats?.server?.app || 'PeopleDesk Studio Enterprise'}</span>
+              <span className="font-semibold">{stats?.server?.app || 'Employee Database Studio Enterprise'}</span>
             </div>
             <div className="flex items-center justify-between py-1 border-b dark:border-zinc-800 border-zinc-100">
               <span className={isDark ? 'text-zinc-400' : 'text-zinc-600'}>Target Deployment</span>

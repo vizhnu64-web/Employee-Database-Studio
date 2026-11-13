@@ -15,7 +15,7 @@ router.get('/status', authenticateToken, async (req: AuthRequest, res) => {
         success: true,
         license: {
           isActivated: true,
-          licenseKey: 'PDS-PERP-2026-COMM-8821',
+          licenseKey: 'EDS-PERP-2026-COMM-8821',
           maxClients: 10,
           activatedAt: new Date().toISOString(),
           status: 'Active (Perpetual LAN)'

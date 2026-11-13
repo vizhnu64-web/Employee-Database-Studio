@@ -1,6 +1,6 @@
-# PeopleDesk Studio — Standalone Windows Desktop Application
+# Employee Database Studio — Enterprise HR & Payroll Application
 
-**PeopleDesk Studio** is a complete, native-style Windows desktop application designed for HR professionals to maintain complete employee records and documents, import payroll spreadsheets, validate deterministic salary mathematics, preview high-fidelity A4 portrait payslips, generate vector PDFs, and export compressed ZIP bundles.
+**Employee Database Studio** is a complete enterprise application designed for HR professionals to maintain complete employee records and documents, import payroll spreadsheets, validate deterministic salary mathematics, preview high-fidelity A4 portrait payslips, generate vector PDFs, and export compressed ZIP bundles.
 
 The application operates **100% locally and offline**. All Google Sheets, Google Cloud, external APIs, billing, online authentication, and network dependencies have been completely removed.
 
@@ -10,7 +10,7 @@ The application operates **100% locally and offline**. All Google Sheets, Google
 
 1. **Comprehensive Employee Database & Document Management**:
    - Centralized HR directory for employee profiles, personal details, contact info, and employment milestones.
-   - Secure local document storage (`%APPDATA%\PeopleDesk Studio\employee_documents`) with automatic legacy migration.
+   - Secure document storage (`employee-documents` bucket / `%APPDATA%\Employee Database Studio\employee_documents`) with automatic legacy migration.
    - Categorized document attachments (Identity, Address, Education, Experience, Bank, Contracts).
    - Fast instant search across IDs, names, designations, and document titles.
 
@@ -43,7 +43,7 @@ The application operates **100% locally and offline**. All Google Sheets, Google
    - Prevents accidental overwrites by warning HR if a payslip was already generated for that period and requiring explicit confirmation.
 
 6. **Local Persistent Database**:
-   - Stores employee records, payroll runs, company branding, and generation history locally in SQLite / IndexedDB (`%APPDATA%\PeopleDeskStudio`).
+   - Stores employee records, payroll runs, company branding, and generation history in PostgreSQL / IndexedDB (`%APPDATA%\EmployeeDatabaseStudio`).
    - Full Database JSON Backup export and restore tools.
    - Complete data isolation: no data leaves the computer.
 
@@ -82,8 +82,8 @@ npm run electron:dev
 npm run build:win
 ```
 This command compiles the React frontend with Vite and invokes Electron Builder to generate:
-- **Windows Installer (`.exe`)**: `release/PeopleDesk Studio Setup 1.0.0.exe` (NSIS installer with desktop shortcut and uninstaller)
-- **Portable Executable (`.exe`)**: `release/PeopleDeskStudio-Portable-1.0.0.exe` (runs directly without installation)
+- **Windows Installer (`.exe`)**: `release/Employee Database Studio Setup 1.0.0.exe` (NSIS installer with desktop shortcut and uninstaller)
+- **Portable Executable (`.exe`)**: `release/EmployeeDatabaseStudio-Portable-1.0.0.exe` (runs directly without installation)
 
 ---
 

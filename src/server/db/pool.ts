@@ -90,7 +90,7 @@ function loadLocalDB(): LocalDatabaseSchema {
       return { ...getInitialDB(), ...parsed };
     }
   } catch (err) {
-    console.warn('[PeopleDesk DB] Error reading file DB, initializing empty structure:', err);
+    console.warn('[Employee Database Studio DB] Error reading file DB, initializing empty structure:', err);
   }
   const initial = getInitialDB();
   saveLocalDB(initial);
@@ -106,7 +106,7 @@ function saveLocalDB(data: LocalDatabaseSchema) {
     fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
     fs.renameSync(tempFile, DB_FILE);
   } catch (err) {
-    console.error('[PeopleDesk DB] Error saving local DB:', err);
+    console.error('[Employee Database Studio DB] Error saving local DB:', err);
   }
 }
 

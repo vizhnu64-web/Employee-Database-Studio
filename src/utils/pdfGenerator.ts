@@ -57,6 +57,13 @@ export function generatePayslipPdf(
     format: 'a4'
   });
 
+  doc.setProperties({
+    title: `Payslip - ${sanitizePdfText(record.employeeId || '')} - ${sanitizePdfText(record.name || '')} (${sanitizePdfText(month)} ${year})`,
+    subject: `Official Salary Payslip for ${sanitizePdfText(month)} ${year}`,
+    author: sanitizePdfText(settings.companyName || 'Employee Database Studio'),
+    creator: 'Employee Database Studio'
+  });
+
   const pageWidth = 210;
   const pageHeight = 297;
   const margin = 14;
@@ -506,7 +513,7 @@ export function generatePayslipPdf(
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
-    doc.text('This is a computer-generated payslip created securely with PeopleDesk Studio. No signature required unless specified.', pageWidth / 2, footerY, { align: 'center' });
+    doc.text('This is a computer-generated payslip created securely with Employee Database Studio. No signature required unless specified.', pageWidth / 2, footerY, { align: 'center' });
   }
 
   return doc;

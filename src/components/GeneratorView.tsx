@@ -17,6 +17,7 @@ import { generateBulkPayslipsZip, generatePayslipPdf, getSafeFileName } from '..
 import { localDB } from '../utils/dbStorage';
 import { useTheme } from '../context/ThemeContext';
 import { PayslipManualEditorModal } from './PayslipManualEditorModal';
+import { apiClient } from '../utils/apiClient';
 
 interface GeneratorViewProps {
   employees: EmployeeRecord[];
@@ -108,7 +109,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
 
     // Upload to Supabase Storage backend
     try {
-      const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+      const token = apiClient.getToken();
       await fetch('/api/payroll/save-payslip-pdf', {
         method: 'POST',
         headers: {
@@ -187,7 +188,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
         };
 
         try {
-          const token = localStorage.getItem('auth_token') || sessionStorage.getItem('auth_token');
+          const token = apiClient.getToken();
           await fetch('/api/payroll/save-payslip-pdf', {
             method: 'POST',
             headers: {

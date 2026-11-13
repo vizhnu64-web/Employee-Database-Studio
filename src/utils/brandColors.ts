@@ -1,5 +1,5 @@
 /**
- * Centralized Brand & Design Token System for PeopleDesk Studio
+ * Centralized Brand & Design Token System for Employee Database Studio
  * Provides pure logic for color calculations, contrast determination,
  * shade variations, token generation, and DOM CSS variable injection.
  */

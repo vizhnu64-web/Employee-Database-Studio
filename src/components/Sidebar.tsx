@@ -78,9 +78,9 @@ export const Sidebar: React.FC<SidebarProps> = ({
   onCloseMobile
 }) => {
   const { isDark } = useTheme();
-  const userRole = currentUser?.role || 'admin';
+  const userRole = currentUser?.role || '';
   const normalizedRole = userRole.toLowerCase();
-  const isAdmin = !currentUser || normalizedRole === 'admin' || normalizedRole === 'super_admin' || normalizedRole === 'company_admin';
+  const isAdmin = Boolean(currentUser && (normalizedRole === 'admin' || normalizedRole === 'super_admin' || normalizedRole === 'company_admin'));
 
   // Role-based visible tab definitions
   const allWorkspaceNav = [
@@ -394,13 +394,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           />
         </div>
 
-        {/* Central Server Indicator */}
+        {/* Central Server & Application Brand Indicator */}
         <div className={`flex items-center justify-between text-[11px] px-1 ${isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}>
-          <div className="flex items-center space-x-1.5">
-            <Database className="w-3.5 h-3.5 text-brand-primary" />
-            <span>Cloud Central Server</span>
+          <div className="flex items-center space-x-1.5 truncate">
+            <Database className="w-3.5 h-3.5 text-brand-primary shrink-0" />
+            <span className="truncate font-medium">Employee Database Studio</span>
           </div>
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" title="Connected to central cloud server" />
+          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" title="Employee Database Studio Cloud Central Server" />
         </div>
       </div>
     </aside>
