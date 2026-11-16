@@ -13,7 +13,7 @@
     "migrate": "tsx scripts/migrate.ts",
     "test": "tsx --test src/utils/*.test.ts src/server/*.test.ts",
     "clean": "rm -rf dist release",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit -p tsconfig.app.json && tsc --noEmit -p tsconfig.node.json && tsc --noEmit"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
@@ -54,7 +54,7 @@
     "autoprefixer": "^10.4.21",
     "electron": "^45.0.0",
     "electron-builder": "^26.18.0",
-    "esbuild": "^0.25.0",
+    "esbuild": "^0.28.0",
     "tailwindcss": "^4.3.3",
     "tsx": "^4.21.0",
     "typescript": "^7.0.2"
