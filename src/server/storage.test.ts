@@ -154,3 +154,135 @@ test('SupabaseStorageService with configured client performs upload, signed url,
   const deleted = await service.deleteObject(bucket, uploadRes.path);
   assert.equal(deleted, true);
 });
+
+test('supabaseStorage.ts contains zero fs imports or synchronous filesystem operations', () => {
+  const sourcePath = path.resolve(process.cwd(), 'src', 'server', 'storage', 'supabaseStorage.ts');
+  const source = fs.readFileSync(sourcePath, 'utf-8');
+  assert.equal(/\bfrom\s+['"](?:node:)?fs(?:\/promises)?['"]/.test(source), false);
+  assert.equal(/\bmkdirSync\b|\bwriteFileSync\b|\bexistsSync\b|\bappendFileSync\b/.test(source), false);
+});
+
+test('SupabaseStorageService verifies SUPABASE_URL presence, format, and lazy env updates cleanly', async () => {
+  const prevUrl = process.env.SUPABASE_URL;
+  const prevServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  const prevSecretKey = process.env.SUPABASE_SECRET_KEY;
+  const prevAnonKey = process.env.SUPABASE_ANON_KEY;
+
+  try {
+    // 1. Missing SUPABASE_URL even when key exists
+    delete process.env.SUPABASE_URL;
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
+    delete process.env.SUPABASE_SECRET_KEY;
+    delete process.env.SUPABASE_ANON_KEY;
+
+    const service = new SupabaseStorageService();
+    const missingUrlStatus = service.verifyConfiguration();
+    assert.equal(missingUrlStatus.configured, false);
+    assert.match(missingUrlStatus.error || '', /SUPABASE_URL/);
+    assert.equal(service.isConfigured(), false);
+
+    await assert.rejects(
+      () => service.uploadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf', Buffer.from('x'), 'application/pdf'),
+      (err: any) => err instanceof StorageServiceError && err.statusCode === 503 && /SUPABASE_URL/.test(err.message)
+    );
+
+    // 2. Invalid SUPABASE_URL format
+    process.env.SUPABASE_URL = 'not-a-valid-url';
+    const invalidStatus = service.verifyConfiguration();
+    assert.equal(invalidStatus.configured, false);
+    assert.match(invalidStatus.error || '', /valid HTTP or HTTPS URL/);
+
+    // 3. Valid quoted SUPABASE_URL set after instantiation (simulates dotenv.config after module import)
+    process.env.SUPABASE_URL = '"https://my-company-proj.supabase.co"';
+    const validStatus = service.verifyConfiguration();
+    assert.equal(validStatus.configured, true);
+    assert.equal(validStatus.supabaseUrl, 'https://my-company-proj.supabase.co');
+    assert.equal(validStatus.error, null);
+    assert.equal(service.isConfigured(), true);
+    assert.equal(service.getSupabaseUrl(), 'https://my-company-proj.supabase.co');
+
+    // 4. Empty path after sanitization returns controlled 400 error
+    await assert.rejects(
+      () => service.uploadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '../..//', Buffer.from('x'), 'application/pdf'),
+      (err: any) => err instanceof StorageServiceError && err.statusCode === 400
+    );
+  } finally {
+    if (prevUrl !== undefined) process.env.SUPABASE_URL = prevUrl;
+    else delete process.env.SUPABASE_URL;
+    if (prevServiceKey !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = prevServiceKey;
+    else delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    if (prevSecretKey !== undefined) process.env.SUPABASE_SECRET_KEY = prevSecretKey;
+    else delete process.env.SUPABASE_SECRET_KEY;
+    if (prevAnonKey !== undefined) process.env.SUPABASE_ANON_KEY = prevAnonKey;
+    else delete process.env.SUPABASE_ANON_KEY;
+    supabaseStorage.initClient();
+  }
+});
+
+test('SupabaseStorageService converts unexpected SDK rejections into controlled StorageServiceError', async () => {
+  const failingClient: any = {
+    storage: {
+      from() {
+        return {
+          async upload() {
+            throw new Error('Network socket hang up');
+          },
+          async createSignedUrl() {
+            throw new Error('Signed URL timeout');
+          },
+          async download() {
+            throw new Error('Download connection reset');
+          },
+          async remove() {
+            throw new Error('Delete connection reset');
+          },
+        };
+      },
+    },
+  };
+
+  const service = new SupabaseStorageService(failingClient, 'https://example.supabase.co');
+  await assert.rejects(
+    () => service.uploadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf', Buffer.from('x'), 'application/pdf'),
+    (err: any) => err instanceof StorageServiceError && err.statusCode === 502 && /Network socket hang up/.test(err.message)
+  );
+  await assert.rejects(
+    () => service.createSignedUrl(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf', 300),
+    (err: any) => err instanceof StorageServiceError && err.statusCode === 502
+  );
+  await assert.rejects(
+    () => service.downloadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf'),
+    (err: any) => err instanceof StorageServiceError && err.statusCode === 502
+  );
+  await assert.rejects(
+    () => service.deleteObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf'),
+    (err: any) => err instanceof StorageServiceError && err.statusCode === 502
+  );
+});
+
+test('SupabaseStorageService lazily initializes client only on first access, never on construction/import', () => {
+  const prevUrl = process.env.SUPABASE_URL;
+  const prevKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  try {
+    process.env.SUPABASE_URL = 'https://lazy-init-proj.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = 'lazy-init-key';
+
+    const service = new SupabaseStorageService();
+    // Before any operation or status check, client and env signature remain uninitialized
+    assert.equal((service as any).client, null);
+    assert.equal((service as any).isClientInitialized, false);
+    assert.equal((service as any).lastEnvSignature, null);
+
+    // First check triggers lazy initialization cleanly in memory
+    assert.equal(service.isConfigured(), true);
+    assert.notEqual((service as any).client, null);
+    assert.equal((service as any).isClientInitialized, true);
+    assert.equal(service.getSupabaseUrl(), 'https://lazy-init-proj.supabase.co');
+  } finally {
+    if (prevUrl !== undefined) process.env.SUPABASE_URL = prevUrl;
+    else delete process.env.SUPABASE_URL;
+    if (prevKey !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = prevKey;
+    else delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+  }
+});

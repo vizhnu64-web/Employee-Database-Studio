@@ -101,6 +101,195 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
+// GET /api/auth/admin-setup-status - Reports whether initial setup or existing-admin authorization is required
+router.get('/admin-setup-status', async (req, res) => {
+  try {
+    const usersRes = await query('SELECT id, username, role, is_active FROM users');
+    const hasAdminAccount = usersRes.rows.some(
+      (u: any) => u.role === 'admin' && u.is_active !== false
+    );
+    const setupKeyConfigured = Boolean(process.env.ADMIN_SETUP_KEY?.trim());
+
+    res.json({
+      success: true,
+      hasAdminAccount,
+      requiresAuthorization: hasAdminAccount || setupKeyConfigured,
+      setupKeyConfigured,
+    });
+  } catch (err: any) {
+    console.error('[Auth Error] /admin-setup-status:', err?.message || err);
+    res.status(err?.statusCode || 500).json({
+      success: false,
+      error: err?.statusCode === 503 ? err.message : 'Unable to check administrator setup status.'
+    });
+  }
+});
+
+// POST /api/auth/register-admin - Provision a new Admin Control Account from login screen
+router.post('/register-admin', loginLimiter, async (req, res) => {
+  try {
+    const {
+      fullName,
+      username,
+      email,
+      password,
+      authorizingUsername,
+      authorizingPassword,
+      adminSetupKey
+    } = req.body || {};
+
+    const cleanFullName = String(fullName || '').trim();
+    const cleanUsername = String(username || '').trim().toLowerCase();
+    const cleanEmail = String(email || '').trim();
+    const rawPassword = String(password || '');
+
+    if (cleanFullName.length < 2) {
+      return res.status(400).json({
+        success: false,
+        error: 'Full Name is required (minimum 2 characters).'
+      });
+    }
+
+    if (!/^[a-z0-9._-]{3,40}$/.test(cleanUsername)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Admin username must be 3–40 characters using letters, numbers, dots, underscores, or hyphens.'
+      });
+    }
+
+    if (cleanEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(cleanEmail)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Please enter a valid work email address.'
+      });
+    }
+
+    if (rawPassword.length < 8) {
+      return res.status(400).json({
+        success: false,
+        error: 'Password must be at least 8 characters long.'
+      });
+    }
+
+    const usersRes = await query('SELECT id, company_id, username, role, is_active, password_hash FROM users');
+    const duplicate = usersRes.rows.find(
+      (u: any) => String(u.username || '').toLowerCase() === cleanUsername
+    );
+    if (duplicate) {
+      return res.status(409).json({
+        success: false,
+        error: `Username "${cleanUsername}" already exists. Please choose a different admin username.`
+      });
+    }
+
+    const activeAdmins = usersRes.rows.filter(
+      (u: any) => u.role === 'admin' && u.is_active !== false
+    );
+    const hasAdminAccount = activeAdmins.length > 0;
+    const configuredSetupKey = process.env.ADMIN_SETUP_KEY?.trim() || '';
+    const providedSetupKey = String(adminSetupKey || '').trim();
+    const setupKeyMatches = Boolean(configuredSetupKey && providedSetupKey && providedSetupKey === configuredSetupKey);
+
+    let authorizedBy = 'INITIAL_BOOTSTRAP';
+
+    if (hasAdminAccount) {
+      if (setupKeyMatches) {
+        authorizedBy = 'ADMIN_SETUP_KEY';
+      } else {
+        const cleanAuthUser = String(authorizingUsername || '').trim().toLowerCase();
+        const rawAuthPass = String(authorizingPassword || '');
+
+        if (!cleanAuthUser || !rawAuthPass) {
+          return res.status(403).json({
+            success: false,
+            error: 'Administrator authorization required. Enter an existing Administrator username and password to create a new Admin Control Account.'
+          });
+        }
+
+        const authAdmin = activeAdmins.find(
+          (u: any) => String(u.username || '').toLowerCase() === cleanAuthUser
+        );
+        if (!authAdmin) {
+          await bcrypt.compare(rawAuthPass, '$2b$10$e7m07g7N0Ew29c0JjI5F4.Vl3E5kL4U1W0f6f3z3h2y7b0v5s1l0m');
+          return res.status(403).json({
+            success: false,
+            error: 'Invalid authorizing Administrator credentials.'
+          });
+        }
+
+        const authMatch = await bcrypt.compare(rawAuthPass, authAdmin.password_hash);
+        if (!authMatch) {
+          return res.status(403).json({
+            success: false,
+            error: 'Invalid authorizing Administrator credentials.'
+          });
+        }
+        authorizedBy = authAdmin.username;
+      }
+    } else if (configuredSetupKey && !setupKeyMatches) {
+      return res.status(403).json({
+        success: false,
+        error: 'Valid Admin Setup Key is required to provision the first Admin Control Account.'
+      });
+    } else if (setupKeyMatches) {
+      authorizedBy = 'ADMIN_SETUP_KEY';
+    }
+
+    const compRes = await query('SELECT id FROM companies ORDER BY id ASC LIMIT 1');
+    const companyId = compRes.rows[0]?.id || 1;
+    const passwordHash = await bcrypt.hash(rawPassword, 10);
+
+    const insertRes = await query(`
+      INSERT INTO users (company_id, username, password_hash, full_name, role, email, is_active, employee_id, must_change_password)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id, company_id, username, full_name, role, email, is_active, employee_id, must_change_password
+    `, [companyId, cleanUsername, passwordHash, cleanFullName, 'admin', cleanEmail, true, null, false]);
+
+    const createdUser = insertRes.rows[0];
+    const newUserId = createdUser?.id || Date.now();
+
+    await query(`
+      INSERT INTO audit_logs (company_id, user_id, action, entity_type, entity_id, details, ip_address)
+      VALUES ($1, $2, $3, $4, $5, $6, $7)
+    `, [
+      companyId,
+      newUserId,
+      'CREATE_ADMIN_ACCOUNT',
+      'USER',
+      cleanUsername,
+      `Provisioned Admin Control Account "${cleanUsername}" (authorized by: ${authorizedBy})`,
+      req.ip || '127.0.0.1'
+    ]);
+
+    const tokenPayload = {
+      id: newUserId,
+      companyId,
+      username: cleanUsername,
+      fullName: cleanFullName,
+      email: cleanEmail,
+      role: 'admin' as const,
+      employeeId: null,
+      mustChangePassword: false
+    };
+
+    const secret = getJwtSecret();
+    const token = jwt.sign(tokenPayload, secret, { expiresIn: '12h' });
+
+    res.status(201).json({
+      success: true,
+      token,
+      user: tokenPayload,
+      message: `Admin Control Account "${cleanUsername}" created successfully.`
+    });
+  } catch (err: any) {
+    console.error('[Auth Error] /register-admin:', err?.message || err);
+    res.status(err?.statusCode || 500).json({
+      success: false,
+      error: err?.statusCode === 503 ? err.message : 'Unable to create Admin Control Account. Please try again.'
+    });
+  }
+});
+
 // GET /api/auth/verify
 router.get('/verify', authenticateToken, async (req: AuthRequest, res) => {
   try {
@@ -186,6 +375,7 @@ router.post('/users', authenticateToken, requireRole(['admin']), async (req: Aut
     const insertRes = await query(`
       INSERT INTO users (company_id, username, password_hash, full_name, role, email, is_active, employee_id, must_change_password)
       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+      RETURNING id
     `, [companyId, cleanUsername, passwordHash, fullName.trim(), role, email || '', true, employeeId || null, false]);
 
     // Record in audit log

@@ -144,3 +144,128 @@ test('Duplicate username validation rejects existing accounts case-insensitively
   assert.equal(checkDuplicate('hr_lead'), true);
   assert.equal(checkDuplicate('new_user_1'), false);
 });
+
+test('Admin Control Account registration endpoints enforce authorization, create admin account, and support subsequent login', async () => {
+  const fs = await import('node:fs');
+  const path = await import('node:path');
+  const http = await import('node:http');
+  const { app } = await import('../../server');
+
+  const dbPath = path.resolve(process.cwd(), 'data', 'peopledesk_lan_db.json');
+  const originalDbExists = fs.existsSync(dbPath);
+  const originalDbRaw = originalDbExists ? fs.readFileSync(dbPath, 'utf-8') : null;
+  const prevSetupKey = process.env.ADMIN_SETUP_KEY;
+
+  const server = http.createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const addr = server.address() as { port: number };
+  const baseUrl = `http://127.0.0.1:${addr.port}`;
+
+  try {
+    // 1. Check initial admin setup status
+    const statusRes = await fetch(`${baseUrl}/api/auth/admin-setup-status`);
+    assert.equal(statusRes.status, 200);
+    const statusJson: any = await statusRes.json();
+    assert.equal(statusJson.success, true);
+    assert.equal(statusJson.hasAdminAccount, true);
+    assert.equal(statusJson.requiresAuthorization, true);
+
+    // 2. Rejects unauthorized creation when existing admin exists
+    const unauthRes = await fetch(`${baseUrl}/api/auth/register-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: 'Unauthorized User',
+        username: 'unauth_admin',
+        password: 'StrongPassword@123'
+      })
+    });
+    assert.equal(unauthRes.status, 403);
+
+    // 3. Rejects wrong authorizing password
+    const badAuthRes = await fetch(`${baseUrl}/api/auth/register-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: 'Bad Auth Admin',
+        username: 'bad_auth_admin',
+        password: 'StrongPassword@123',
+        authorizingUsername: 'admin',
+        authorizingPassword: 'wrong_password'
+      })
+    });
+    assert.equal(badAuthRes.status, 403);
+
+    // 4. Rejects duplicate username
+    const dupRes = await fetch(`${baseUrl}/api/auth/register-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: 'Duplicate Admin',
+        username: 'admin',
+        password: 'StrongPassword@123',
+        authorizingUsername: 'admin',
+        authorizingPassword: 'admin123'
+      })
+    });
+    assert.equal(dupRes.status, 409);
+
+    // 5. Creates Admin Control Account with valid existing Admin authorization
+    const createRes = await fetch(`${baseUrl}/api/auth/register-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: 'Control Ops Admin',
+        username: 'control_admin_test',
+        email: 'control@company.com',
+        password: 'ControlAdmin@2026',
+        authorizingUsername: 'admin',
+        authorizingPassword: 'admin123'
+      })
+    });
+    assert.equal(createRes.status, 201);
+    const createJson: any = await createRes.json();
+    assert.equal(createJson.success, true);
+    assert.ok(createJson.token);
+    assert.equal(createJson.user.username, 'control_admin_test');
+    assert.equal(createJson.user.role, 'admin');
+    assert.equal(createJson.user.fullName, 'Control Ops Admin');
+
+    // 6. Newly created Admin Control Account can log in cleanly
+    const loginRes = await fetch(`${baseUrl}/api/auth/login`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        username: 'control_admin_test',
+        password: 'ControlAdmin@2026'
+      })
+    });
+    assert.equal(loginRes.status, 200);
+    const loginJson: any = await loginRes.json();
+    assert.equal(loginJson.success, true);
+    assert.equal(loginJson.user.role, 'admin');
+
+    // 7. Supports ADMIN_SETUP_KEY authorization cleanly
+    process.env.ADMIN_SETUP_KEY = 'SECURE_SETUP_KEY_2026';
+    const setupKeyRes = await fetch(`${baseUrl}/api/auth/register-admin`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fullName: 'Setup Key Admin',
+        username: 'setup_key_admin',
+        password: 'ControlAdmin@2026',
+        adminSetupKey: 'SECURE_SETUP_KEY_2026'
+      })
+    });
+    assert.equal(setupKeyRes.status, 201);
+    const setupKeyJson: any = await setupKeyRes.json();
+    assert.equal(setupKeyJson.user.role, 'admin');
+  } finally {
+    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (prevSetupKey !== undefined) process.env.ADMIN_SETUP_KEY = prevSetupKey;
+    else delete process.env.ADMIN_SETUP_KEY;
+    if (originalDbExists && originalDbRaw !== null) {
+      fs.writeFileSync(dbPath, originalDbRaw, 'utf-8');
+    }
+  }
+});

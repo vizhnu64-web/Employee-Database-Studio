@@ -1,5 +1,4 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import path from 'path';
 
 export const STORAGE_BUCKETS = {
   EMPLOYEE_DOCUMENTS: 'employee-documents',
@@ -10,6 +9,12 @@ export const STORAGE_BUCKETS = {
 
 export type StorageBucket = typeof STORAGE_BUCKETS[keyof typeof STORAGE_BUCKETS];
 
+export interface StorageConfigurationStatus {
+  configured: boolean;
+  supabaseUrl: string | null;
+  error: string | null;
+}
+
 export class StorageServiceError extends Error {
   public readonly statusCode: number;
   constructor(message: string, statusCode = 503) {
@@ -19,65 +24,190 @@ export class StorageServiceError extends Error {
   }
 }
 
+function sanitizeEnvValue(raw: string | undefined): string {
+  if (!raw) return '';
+  let trimmed = raw.trim();
+  if (
+    (trimmed.startsWith('"') && trimmed.endsWith('"')) ||
+    (trimmed.startsWith("'") && trimmed.endsWith("'"))
+  ) {
+    trimmed = trimmed.slice(1, -1).trim();
+  }
+  return trimmed;
+}
+
 export class SupabaseStorageService {
   private client: SupabaseClient | null = null;
   private isClientInitialized = false;
   private configuredUrl = '';
+  private configError: string | null = null;
+  private lastEnvSignature: string | null = null;
+  private readonly hasCustomClient: boolean;
 
   constructor(customClient?: SupabaseClient | null, customUrl?: string) {
     if (customClient !== undefined) {
+      this.hasCustomClient = true;
       this.client = customClient;
       this.isClientInitialized = Boolean(customClient);
-      this.configuredUrl = customUrl || '';
+      this.configuredUrl = sanitizeEnvValue(customUrl);
+      this.configError = customClient
+        ? null
+        : 'Supabase Storage service is unavailable. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.';
     } else {
-      this.initClient();
+      this.hasCustomClient = false;
+      // Defer client initialization until first storage operation or configuration check (zero work/I/O on import)
+    }
+  }
+
+  private readEnvConfig(): {
+    supabaseUrl: string;
+    supabaseKey: string;
+    signature: string;
+    configError: string | null;
+  } {
+    const supabaseUrl = sanitizeEnvValue(process.env.SUPABASE_URL);
+    const supabaseKey =
+      sanitizeEnvValue(process.env.SUPABASE_SERVICE_ROLE_KEY) ||
+      sanitizeEnvValue(process.env.SUPABASE_SECRET_KEY) ||
+      sanitizeEnvValue(process.env.SUPABASE_ANON_KEY);
+
+    const signature = `${supabaseUrl}::${supabaseKey}`;
+
+    if (!supabaseUrl) {
+      return {
+        supabaseUrl: '',
+        supabaseKey,
+        signature,
+        configError: 'Supabase Storage is unavailable: SUPABASE_URL environment variable is missing.'
+      };
+    }
+
+    if (supabaseUrl.includes('your-project')) {
+      return {
+        supabaseUrl: '',
+        supabaseKey,
+        signature,
+        configError: 'Supabase Storage is unavailable: SUPABASE_URL is set to a placeholder value.'
+      };
+    }
+
+    try {
+      const parsed = new URL(supabaseUrl);
+      if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || !parsed.hostname) {
+        return {
+          supabaseUrl: '',
+          supabaseKey,
+          signature,
+          configError: 'Supabase Storage is unavailable: SUPABASE_URL must be a valid HTTP or HTTPS URL.'
+        };
+      }
+    } catch {
+      return {
+        supabaseUrl: '',
+        supabaseKey,
+        signature,
+        configError: 'Supabase Storage is unavailable: SUPABASE_URL is not a valid HTTP or HTTPS URL.'
+      };
+    }
+
+    if (!supabaseKey) {
+      return {
+        supabaseUrl,
+        supabaseKey: '',
+        signature,
+        configError:
+          'Supabase Storage is unavailable: SUPABASE_SERVICE_ROLE_KEY (or SUPABASE_SECRET_KEY / SUPABASE_ANON_KEY) environment variable is missing.'
+      };
+    }
+
+    return {
+      supabaseUrl,
+      supabaseKey,
+      signature,
+      configError: null
+    };
+  }
+
+  /**
+   * Initializes the Supabase Storage SDK client purely in memory.
+   * Never performs filesystem writes or directory creation (safe for read-only Vercel serverless /var/task).
+   */
+  public initClient(): void {
+    if (this.hasCustomClient) {
+      return;
+    }
+
+    const { supabaseUrl, supabaseKey, signature, configError } = this.readEnvConfig();
+    this.lastEnvSignature = signature;
+
+    if (configError) {
+      this.client = null;
+      this.configuredUrl = '';
+      this.isClientInitialized = false;
+      this.configError = configError;
+      return;
+    }
+
+    try {
+      this.client = createClient(supabaseUrl, supabaseKey, {
+        auth: {
+          persistSession: false,
+          autoRefreshToken: false
+        }
+      });
+      this.configuredUrl = supabaseUrl;
+      this.isClientInitialized = true;
+      this.configError = null;
+    } catch (err: any) {
+      const reason = err?.message || 'Unknown error';
+      console.warn('[Supabase Storage] Failed to initialize client:', reason);
+      this.client = null;
+      this.configuredUrl = '';
+      this.isClientInitialized = false;
+      this.configError = `Supabase Storage initialization failed: ${reason}`;
     }
   }
 
   /**
-   * Initializes Supabase Storage client purely in memory.
-   * Never performs filesystem writes during module import or initialization.
+   * Verifies SUPABASE_URL and credentials are present and valid.
+   * Automatically refreshes initialization if environment variables changed after module import (e.g. dotenv.config).
    */
-  public initClient() {
-    const supabaseUrl = process.env.SUPABASE_URL?.trim() || '';
-    // Keep existing key architecture: prefer service-role key on backend, fallback to anon key if provided
-    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)?.trim() || '';
-
-    if (supabaseUrl && supabaseKey && !supabaseUrl.includes('your-project')) {
-      try {
-        this.client = createClient(supabaseUrl, supabaseKey, {
-          auth: {
-            persistSession: false,
-            autoRefreshToken: false
-          }
-        });
-        this.configuredUrl = supabaseUrl;
-        this.isClientInitialized = true;
-      } catch (err: any) {
-        console.warn('[Supabase Storage] Failed to initialize client:', err?.message || 'Unknown error');
-        this.client = null;
-        this.configuredUrl = '';
-        this.isClientInitialized = false;
-      }
-    } else {
-      this.client = null;
-      this.configuredUrl = '';
-      this.isClientInitialized = false;
+  public verifyConfiguration(): StorageConfigurationStatus {
+    if (this.hasCustomClient) {
+      return {
+        configured: this.isClientInitialized && this.client !== null,
+        supabaseUrl: this.configuredUrl || null,
+        error: this.configError
+      };
     }
+
+    const { signature } = this.readEnvConfig();
+    if (signature !== this.lastEnvSignature) {
+      this.initClient();
+    }
+
+    return {
+      configured: this.isClientInitialized && this.client !== null,
+      supabaseUrl: this.configuredUrl || null,
+      error: this.configError
+    };
   }
 
   public isConfigured(): boolean {
-    return this.isClientInitialized && this.client !== null;
+    return this.verifyConfiguration().configured;
   }
 
   public getSupabaseUrl(): string {
-    return this.configuredUrl || process.env.SUPABASE_URL?.trim() || '';
+    const status = this.verifyConfiguration();
+    return status.supabaseUrl || sanitizeEnvValue(process.env.SUPABASE_URL);
   }
 
   private ensureClient(): SupabaseClient {
-    if (!this.isClientInitialized || !this.client) {
+    const status = this.verifyConfiguration();
+    if (!status.configured || !this.client) {
       throw new StorageServiceError(
-        'Supabase Storage service is unavailable. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+        status.error ||
+          'Supabase Storage service is unavailable. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
         503
       );
     }
@@ -85,12 +215,24 @@ export class SupabaseStorageService {
   }
 
   /**
-   * Sanitizes paths to prevent directory traversal and remove leading/trailing slashes.
+   * Sanitizes paths purely in memory to prevent directory traversal and remove leading/trailing slashes.
    */
   public sanitizeStoragePath(rawPath: string): string {
-    const normalized = path.normalize(rawPath).replace(/\\/g, '/');
+    const normalized = String(rawPath || '').replace(/\\/g, '/');
     const parts = normalized.split('/').filter(p => p && p !== '.' && p !== '..');
     return parts.join('/');
+  }
+
+  private resolveValidatedTarget(bucket: StorageBucket | string, storagePath: string): {
+    bucket: string;
+    safePath: string;
+  } {
+    const cleanBucket = String(bucket || '').trim();
+    const safePath = this.sanitizeStoragePath(storagePath);
+    if (!cleanBucket || !safePath) {
+      throw new StorageServiceError('Invalid storage bucket or object path.', 400);
+    }
+    return { bucket: cleanBucket, safePath };
   }
 
   /**
@@ -140,7 +282,7 @@ export class SupabaseStorageService {
   }
 
   /**
-   * Uploads file buffer to private Supabase Storage bucket.
+   * Uploads file buffer directly to private Supabase Storage bucket via SDK.
    */
   public async uploadObject(
     bucket: StorageBucket | string,
@@ -149,24 +291,33 @@ export class SupabaseStorageService {
     mimeType: string
   ): Promise<{ path: string; fullPath: string }> {
     const client = this.ensureClient();
-    const safePath = this.sanitizeStoragePath(storagePath);
+    const { bucket: cleanBucket, safePath } = this.resolveValidatedTarget(bucket, storagePath);
 
-    const { data, error } = await client.storage
-      .from(bucket)
-      .upload(safePath, buffer, {
-        contentType: mimeType,
-        upsert: true
-      });
+    try {
+      const { data, error } = await client.storage
+        .from(cleanBucket)
+        .upload(safePath, buffer, {
+          contentType: mimeType,
+          upsert: true
+        });
 
-    if (error) {
-      console.error(`[Supabase Storage] Upload error to bucket "${bucket}" at "${safePath}":`, error.message);
-      throw new StorageServiceError(`Supabase Storage upload failed: ${error.message}`, 502);
+      if (error) {
+        console.error(`[Supabase Storage] Upload error to bucket "${cleanBucket}" at "${safePath}":`, error.message);
+        throw new StorageServiceError(`Supabase Storage upload failed: ${error.message}`, 502);
+      }
+
+      return {
+        path: safePath,
+        fullPath: data?.fullPath || `${cleanBucket}/${safePath}`
+      };
+    } catch (err: any) {
+      if (err instanceof StorageServiceError) throw err;
+      console.error(`[Supabase Storage] Unexpected upload error to bucket "${cleanBucket}":`, err?.message || err);
+      throw new StorageServiceError(
+        `Supabase Storage upload failed: ${err?.message || 'Unexpected storage error'}`,
+        502
+      );
     }
-
-    return {
-      path: safePath,
-      fullPath: data?.fullPath || `${bucket}/${safePath}`
-    };
   }
 
   /**
@@ -178,17 +329,25 @@ export class SupabaseStorageService {
     expiresInSeconds: number = 300
   ): Promise<string> {
     const client = this.ensureClient();
-    const safePath = this.sanitizeStoragePath(storagePath);
+    const { bucket: cleanBucket, safePath } = this.resolveValidatedTarget(bucket, storagePath);
 
-    const { data, error } = await client.storage
-      .from(bucket)
-      .createSignedUrl(safePath, expiresInSeconds);
+    try {
+      const { data, error } = await client.storage
+        .from(cleanBucket)
+        .createSignedUrl(safePath, expiresInSeconds);
 
-    if (error || !data?.signedUrl) {
-      throw new StorageServiceError(`Failed to generate signed URL: ${error?.message || 'Unknown error'}`, 502);
+      if (error || !data?.signedUrl) {
+        throw new StorageServiceError(`Failed to generate signed URL: ${error?.message || 'Unknown error'}`, 502);
+      }
+
+      return data.signedUrl;
+    } catch (err: any) {
+      if (err instanceof StorageServiceError) throw err;
+      throw new StorageServiceError(
+        `Failed to generate signed URL: ${err?.message || 'Unexpected storage error'}`,
+        502
+      );
     }
-
-    return data.signedUrl;
   }
 
   /**
@@ -199,21 +358,32 @@ export class SupabaseStorageService {
     storagePath: string
   ): Promise<{ buffer: Buffer; mimeType: string }> {
     const client = this.ensureClient();
-    const safePath = this.sanitizeStoragePath(storagePath);
+    const { bucket: cleanBucket, safePath } = this.resolveValidatedTarget(bucket, storagePath);
 
-    const { data, error } = await client.storage
-      .from(bucket)
-      .download(safePath);
+    try {
+      const { data, error } = await client.storage
+        .from(cleanBucket)
+        .download(safePath);
 
-    if (error || !data) {
-      throw new StorageServiceError(`Failed to download object from Supabase: ${error?.message || 'File not found'}`, 404);
+      if (error || !data) {
+        throw new StorageServiceError(
+          `Failed to download object from Supabase: ${error?.message || 'File not found'}`,
+          404
+        );
+      }
+
+      const arrayBuffer = await data.arrayBuffer();
+      return {
+        buffer: Buffer.from(arrayBuffer),
+        mimeType: data.type || 'application/octet-stream'
+      };
+    } catch (err: any) {
+      if (err instanceof StorageServiceError) throw err;
+      throw new StorageServiceError(
+        `Failed to download object from Supabase: ${err?.message || 'Unexpected storage error'}`,
+        502
+      );
     }
-
-    const arrayBuffer = await data.arrayBuffer();
-    return {
-      buffer: Buffer.from(arrayBuffer),
-      mimeType: data.type || 'application/octet-stream'
-    };
   }
 
   /**
@@ -224,17 +394,26 @@ export class SupabaseStorageService {
     storagePath: string
   ): Promise<boolean> {
     const client = this.ensureClient();
-    const safePath = this.sanitizeStoragePath(storagePath);
+    const { bucket: cleanBucket, safePath } = this.resolveValidatedTarget(bucket, storagePath);
 
-    const { error } = await client.storage
-      .from(bucket)
-      .remove([safePath]);
+    try {
+      const { error } = await client.storage
+        .from(cleanBucket)
+        .remove([safePath]);
 
-    if (error) {
-      console.warn(`[Supabase Storage] Delete error in "${bucket}" for "${safePath}":`, error.message);
-      return false;
+      if (error) {
+        console.warn(`[Supabase Storage] Delete error in "${cleanBucket}" for "${safePath}":`, error.message);
+        return false;
+      }
+      return true;
+    } catch (err: any) {
+      if (err instanceof StorageServiceError) throw err;
+      console.warn(`[Supabase Storage] Unexpected delete error in "${cleanBucket}":`, err?.message || err);
+      throw new StorageServiceError(
+        `Failed to delete object from Supabase: ${err?.message || 'Unexpected storage error'}`,
+        502
+      );
     }
-    return true;
   }
 }
 

@@ -89,10 +89,12 @@ function checkDeploymentEnvironment() {
 
 async function startServer() {
   checkDeploymentEnvironment();
-  await ensureDatabaseInitialized();
 
   app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`[Employee Database Studio Server] Enterprise backend running successfully on port ${PORT}`);
+    ensureDatabaseInitialized().catch(err => {
+      console.error('[Employee Database Studio DB] Deferred initialization error:', err?.message || err);
+    });
   });
 }
 

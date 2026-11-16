@@ -1,5 +1,5 @@
 import bcrypt from 'bcrypt';
-import { query, getPool, resolvePostgresConnection, isProductionRuntime } from './pool';
+import { query, getPool, resolvePostgresConnection, isProductionRuntime, hasUsablePostgresUri, DatabaseError } from './pool';
 
 const SCHEMA_LOCK_KEY = 8842102;
 const INITIAL_SCHEMA_VERSION = '001_initial_schema.sql';
@@ -418,8 +418,16 @@ const INITIAL_SCHEMA_SQL = `
 `;
 
 async function initializePostgreSQLSchema() {
-  const pool = getPool('runtime');
-  const client = await pool.connect();
+  let pool;
+  let client;
+  try {
+    pool = getPool('runtime');
+    client = await pool.connect();
+  } catch (err: any) {
+    const rawMsg = String(err?.message || 'Database connection failed');
+    const cleanMsg = rawMsg.replace(/postgres(?:ql)?:\/\/[^\s]+/gi, '[REDACTED_POSTGRES_URL]');
+    throw new DatabaseError(`Database connection failed during initialization: ${cleanMsg}`, 503);
+  }
   try {
     await client.query('SELECT pg_advisory_lock($1)', [SCHEMA_LOCK_KEY]);
 
@@ -460,7 +468,7 @@ export async function initializeDatabase(): Promise<void> {
   const { connectionString } = resolvePostgresConnection('runtime');
   const isProd = isProductionRuntime();
 
-  if (connectionString) {
+  if (connectionString && (isProd || hasUsablePostgresUri('runtime'))) {
     await initializePostgreSQLSchema();
   } else if (isProd) {
     throw new Error('PostgreSQL connection is required in production. Set DATABASE_URL or POSTGRES_URL.');
@@ -513,12 +521,13 @@ export async function initializeDatabase(): Promise<void> {
       `, [companyId, 'admin', adminHash, 'System Administrator', 'admin', 'admin@peopledesk.local', true, 'ADM-001', false]);
       console.log('[Employee Database Studio Security] Initialized development Administrator account (username: admin).');
     }
-  } else if (!isProd && configuredAdminPassword) {
+  } else if (!isProd) {
+    const devAdminPassword = configuredAdminPassword || 'admin123';
     const adminUser = adminRes.rows[0];
     if (!adminUser.last_login_at && !adminUser.must_change_password) {
-      const matchesConfigured = await bcrypt.compare(configuredAdminPassword, adminUser.password_hash);
+      const matchesConfigured = await bcrypt.compare(devAdminPassword, adminUser.password_hash);
       if (!matchesConfigured) {
-        const reconciledHash = await bcrypt.hash(configuredAdminPassword, 10);
+        const reconciledHash = await bcrypt.hash(devAdminPassword, 10);
         await query('UPDATE users SET password_hash = $1, must_change_password = $2 WHERE id = $3', [
           reconciledHash,
           false,

@@ -136,6 +136,7 @@ class ApiClient {
         if (
           response.status === 401 &&
           !endpoint.startsWith('/auth/login') &&
+          !endpoint.startsWith('/auth/register-admin') &&
           !endpoint.startsWith('/auth/change-password') &&
           !endpoint.startsWith('/auth/logout')
         ) {
@@ -185,6 +186,36 @@ class ApiClient {
     const res = await this.request('/auth/login', {
       method: 'POST',
       body: JSON.stringify({ username, password })
+    });
+    if (res.success && res.token && typeof localStorage !== 'undefined') {
+      localStorage.setItem('peopledesk_auth_token', res.token);
+      localStorage.setItem('auth_token', res.token);
+      localStorage.setItem('peopledesk_user', JSON.stringify(res.user));
+    }
+    return res;
+  }
+
+  async getAdminSetupStatus(): Promise<{
+    success: boolean;
+    hasAdminAccount: boolean;
+    requiresAuthorization: boolean;
+    setupKeyConfigured: boolean;
+  }> {
+    return await this.request('/auth/admin-setup-status');
+  }
+
+  async registerAdminAccount(payload: {
+    fullName: string;
+    username: string;
+    email?: string;
+    password: string;
+    authorizingUsername?: string;
+    authorizingPassword?: string;
+    adminSetupKey?: string;
+  }): Promise<{ success: boolean; token: string; user: AuthUser; message: string }> {
+    const res = await this.request('/auth/register-admin', {
+      method: 'POST',
+      body: JSON.stringify(payload)
     });
     if (res.success && res.token && typeof localStorage !== 'undefined') {
       localStorage.setItem('peopledesk_auth_token', res.token);

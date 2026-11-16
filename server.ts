@@ -48,9 +48,9 @@ app.use('/api/', apiLimiter);
 app.get('/api/health', async (req, res) => {
   const dbDiag = getDatabaseDiagnostics();
   let dbReachable = false;
-  let dbError: string | null = null;
+  let dbError: string | null = dbDiag.configError || null;
 
-  if (dbDiag.configured) {
+  if (dbDiag.configured && !dbDiag.configError) {
     try {
       const client = await pool.connect();
       await client.query('SELECT 1');
@@ -159,14 +159,20 @@ function checkDeploymentEnvironment() {
 
 async function startServer() {
   checkDeploymentEnvironment();
-  await ensureDatabaseInitialized();
+
+  let viteServer: { close: () => Promise<void>; middlewares: express.RequestHandler } | null = null;
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        hmr: false,
+        ws: false,
+      },
       appType: 'spa',
     });
+    viteServer = vite;
     app.use(vite.middlewares);
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
@@ -176,9 +182,42 @@ async function startServer() {
     });
   }
 
-  app.listen(Number(PORT), '0.0.0.0', () => {
-    console.log(`[Employee Database Studio] Full-Stack Enterprise Server listening on http://0.0.0.0:${PORT}`);
+  const portNumber = Number(PORT) || 3000;
+  const httpServer = app.listen(portNumber, '0.0.0.0', () => {
+    console.log(`[Employee Database Studio] Full-Stack Enterprise Server listening on http://0.0.0.0:${portNumber}`);
+    // Run database schema/bootstrap initialization after server binds so transient or misconfigured DB never prevents server startup
+    ensureDatabaseInitialized().catch(err => {
+      console.error('[Employee Database Studio DB] Deferred startup initialization error:', err?.message || err);
+    });
   });
+
+  httpServer.on('error', (err: NodeJS.ErrnoException) => {
+    if (err.code === 'EADDRINUSE') {
+      console.error(`[Employee Database Studio] Port ${portNumber} is already in use (${err.message}). Shutting down cleanly.`);
+    } else {
+      console.error('[Employee Database Studio] HTTP server error:', err?.message || err);
+    }
+    if (viteServer) {
+      viteServer.close().catch(() => {});
+    }
+    process.exit(1);
+  });
+
+  const shutdown = (signal: string) => {
+    console.log(`[Employee Database Studio] Received ${signal}, closing server cleanly...`);
+    httpServer.close(() => {
+      if (viteServer) {
+        viteServer.close().finally(() => process.exit(0));
+      } else {
+        process.exit(0);
+      }
+    });
+    // Force exit if connections hang during restart
+    setTimeout(() => process.exit(0), 3000).unref();
+  };
+
+  process.once('SIGTERM', () => shutdown('SIGTERM'));
+  process.once('SIGINT', () => shutdown('SIGINT'));
 }
 
 // Only start the standalone HTTP server when executed directly via `tsx server.ts` / `node server.js`

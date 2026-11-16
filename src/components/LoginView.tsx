@@ -15,7 +15,10 @@ import {
   RotateCcw,
   Sliders,
   ChevronDown,
-  ChevronUp
+  ChevronUp,
+  UserPlus,
+  Mail,
+  KeyRound
 } from 'lucide-react';
 import { apiClient, AuthUser } from '../utils/apiClient';
 import { CompanySettings } from '../types/payroll';
@@ -40,6 +43,46 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
   const [serverStatus, setServerStatus] = useState<'checking' | 'online' | 'offline'>('checking');
   const [showResetGuidance, setShowResetGuidance] = useState(false);
 
+  // Create Admin Control Account mode & form state
+  const [authMode, setAuthMode] = useState<'login' | 'register-admin'>('login');
+  const [adminSetupStatus, setAdminSetupStatus] = useState<{
+    hasAdminAccount: boolean;
+    requiresAuthorization: boolean;
+    setupKeyConfigured: boolean;
+  }>({
+    hasAdminAccount: true,
+    requiresAuthorization: true,
+    setupKeyConfigured: false
+  });
+  const [regFullName, setRegFullName] = useState('');
+  const [regUsername, setRegUsername] = useState('');
+  const [regEmail, setRegEmail] = useState('');
+  const [regPassword, setRegPassword] = useState('');
+  const [regConfirmPassword, setRegConfirmPassword] = useState('');
+  const [showRegPassword, setShowRegPassword] = useState(false);
+  const [authAdminUsername, setAuthAdminUsername] = useState('');
+  const [authAdminPassword, setAuthAdminPassword] = useState('');
+  const [adminSetupKey, setAdminSetupKey] = useState('');
+  const [useSetupKeyAuth, setUseSetupKeyAuth] = useState(false);
+
+  const loadAdminSetupStatus = async () => {
+    try {
+      const status = await apiClient.getAdminSetupStatus();
+      if (status?.success) {
+        setAdminSetupStatus({
+          hasAdminAccount: status.hasAdminAccount,
+          requiresAuthorization: status.requiresAuthorization,
+          setupKeyConfigured: status.setupKeyConfigured
+        });
+        if (!status.hasAdminAccount && status.setupKeyConfigured) {
+          setUseSetupKeyAuth(true);
+        }
+      }
+    } catch {
+      // Keep safe default (requiresAuthorization: true) if health/status is temporarily unreachable
+    }
+  };
+
   // Load remembered username if saved
   useEffect(() => {
     const saved = localStorage.getItem('peopledesk_remembered_username');
@@ -48,6 +91,7 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
       setRememberUsername(true);
     }
     checkServerHealth();
+    loadAdminSetupStatus();
   }, []);
 
   const checkServerHealth = async () => {
@@ -125,10 +169,111 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
   };
 
   const handleQuickFill = (user: string, pass: string) => {
+    setAuthMode('login');
     setUsername(user);
     setPassword(pass);
     setErrorMessage(null);
     setErrorType(null);
+  };
+
+  const handleSwitchMode = (mode: 'login' | 'register-admin') => {
+    setAuthMode(mode);
+    setErrorMessage(null);
+    setErrorType(null);
+    if (mode === 'register-admin') {
+      loadAdminSetupStatus();
+    }
+  };
+
+  const handleCreateAdminAccount = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const cleanFullName = regFullName.trim();
+    const cleanUsername = regUsername.trim().toLowerCase();
+    const cleanEmail = regEmail.trim();
+
+    if (cleanFullName.length < 2) {
+      setErrorType('other');
+      setErrorMessage('Please enter the administrator full name (at least 2 characters).');
+      return;
+    }
+
+    if (!/^[a-z0-9._-]{3,40}$/.test(cleanUsername)) {
+      setErrorType('other');
+      setErrorMessage('Admin username must be 3–40 characters (letters, numbers, dots, underscores, or hyphens).');
+      return;
+    }
+
+    if (regPassword.length < 8) {
+      setErrorType('other');
+      setErrorMessage('Password must be at least 8 characters long.');
+      return;
+    }
+
+    if (regPassword !== regConfirmPassword) {
+      setErrorType('other');
+      setErrorMessage('Password and confirmation password do not match.');
+      return;
+    }
+
+    if (adminSetupStatus.requiresAuthorization) {
+      if (useSetupKeyAuth && adminSetupStatus.setupKeyConfigured) {
+        if (!adminSetupKey.trim()) {
+          setErrorType('credentials');
+          setErrorMessage('Please enter the Admin Setup Key to authorize this account.');
+          return;
+        }
+      } else if (adminSetupStatus.hasAdminAccount) {
+        if (!authAdminUsername.trim() || !authAdminPassword) {
+          setErrorType('credentials');
+          setErrorMessage('Please enter existing Administrator credentials to authorize creating a new Admin Control Account.');
+          return;
+        }
+      } else if (adminSetupStatus.setupKeyConfigured && !adminSetupKey.trim()) {
+        setErrorType('credentials');
+        setErrorMessage('Please enter the Admin Setup Key to create the initial Admin Control Account.');
+        return;
+      }
+    }
+
+    setIsLoading(true);
+    setErrorMessage(null);
+    setErrorType(null);
+
+    try {
+      const res = await apiClient.registerAdminAccount({
+        fullName: cleanFullName,
+        username: cleanUsername,
+        email: cleanEmail || undefined,
+        password: regPassword,
+        authorizingUsername: !useSetupKeyAuth ? authAdminUsername.trim() : undefined,
+        authorizingPassword: !useSetupKeyAuth ? authAdminPassword : undefined,
+        adminSetupKey: (useSetupKeyAuth || !adminSetupStatus.hasAdminAccount) ? adminSetupKey.trim() || undefined : undefined
+      });
+
+      if (res.success && res.user) {
+        if (rememberUsername) {
+          localStorage.setItem('peopledesk_remembered_username', cleanUsername);
+        }
+        onLoginSuccess(res.user);
+      } else {
+        setErrorType('other');
+        setErrorMessage('Unable to create Admin Control Account.');
+      }
+    } catch (err: any) {
+      console.error('Admin registration error:', err);
+      if (err.isNetworkError) {
+        setErrorType('server');
+        setErrorMessage(err.message || 'Cannot reach central authentication server.');
+      } else if (err.status === 403 || err.status === 401) {
+        setErrorType('credentials');
+        setErrorMessage(err.message || 'Administrator authorization failed.');
+      } else {
+        setErrorType('other');
+        setErrorMessage(err.message || 'Failed to create Admin Control Account. Please try again.');
+      }
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -244,8 +389,52 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
               {companySettings.companyName || 'Employee Database Studio'}
             </h1>
             <p className="text-xs text-zinc-500 dark:text-zinc-400 mt-1 font-medium">
-              Central LAN Multi-User Authentication
+              {authMode === 'login'
+                ? 'Central LAN Multi-User Authentication'
+                : 'Provision Admin Control Account'}
             </p>
+          </div>
+
+          {/* Authentication Mode Tabs */}
+          <div
+            role="tablist"
+            aria-label="Authentication mode"
+            className={`grid grid-cols-2 p-1 rounded-xl border mb-5 text-xs font-semibold ${
+              isDark ? 'bg-black/40 border-zinc-800' : 'bg-zinc-100 border-zinc-200'
+            }`}
+          >
+            <button
+              type="button"
+              role="tab"
+              aria-selected={authMode === 'login'}
+              onClick={() => handleSwitchMode('login')}
+              className={`py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition cursor-pointer ${
+                authMode === 'login'
+                  ? isDark
+                    ? 'bg-zinc-800 text-white shadow-xs'
+                    : 'bg-white text-zinc-900 shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+              }`}
+            >
+              <ShieldCheck className="w-3.5 h-3.5" />
+              <span>Sign In</span>
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={authMode === 'register-admin'}
+              onClick={() => handleSwitchMode('register-admin')}
+              className={`py-2 px-3 rounded-lg flex items-center justify-center space-x-1.5 transition cursor-pointer ${
+                authMode === 'register-admin'
+                  ? isDark
+                    ? 'bg-zinc-800 text-white shadow-xs'
+                    : 'bg-white text-zinc-900 shadow-xs'
+                  : 'text-zinc-500 hover:text-zinc-700 dark:hover:text-zinc-300'
+              }`}
+            >
+              <UserPlus className="w-3.5 h-3.5" />
+              <span>Create Admin Account</span>
+            </button>
           </div>
 
           {/* Error Banner */}
@@ -284,175 +473,438 @@ export const LoginView: React.FC<LoginViewProps> = ({ companySettings, onLoginSu
             </div>
           )}
 
-          {/* Login Form */}
-          <form onSubmit={handleLogin} className="space-y-4">
-            {/* Username Field */}
-            <div>
-              <label className="block text-xs font-semibold mb-1 text-zinc-700 dark:text-zinc-300">
-                Username or Employee ID
-              </label>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
-                  <User className="w-4 h-4" />
+          {authMode === 'login' ? (
+            <>
+              {/* Login Form */}
+              <form onSubmit={handleLogin} className="space-y-4">
+                {/* Username Field */}
+                <div>
+                  <label htmlFor="login-username" className="block text-xs font-semibold mb-1 text-zinc-700 dark:text-zinc-300">
+                    Username or Employee ID
+                  </label>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
+                      <User className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="login-username"
+                      type="text"
+                      required
+                      autoFocus
+                      autoComplete="username"
+                      value={username}
+                      onChange={(e) => setUsername(e.target.value)}
+                      placeholder="Enter your username"
+                      className={`w-full text-xs pl-9 pr-3 py-2.5 rounded-lg border outline-hidden transition ${
+                        isDark 
+                          ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500' 
+                          : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
+                      }`}
+                    />
+                  </div>
                 </div>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  autoComplete="username"
-                  value={username}
-                  onChange={(e) => setUsername(e.target.value)}
-                  placeholder="Enter your username"
-                  className={`w-full text-xs pl-9 pr-3 py-2.5 rounded-lg border outline-hidden transition ${
-                    isDark 
-                      ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500' 
-                      : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
-                  }`}
-                />
-              </div>
-            </div>
 
-            {/* Password Field with Show/Hide */}
-            <div>
-              <div className="flex items-center justify-between mb-1">
-                <label className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
-                  Password
-                </label>
-                <button
-                  type="button"
-                  onClick={() => setShowResetGuidance(!showResetGuidance)}
-                  className="text-[11px] text-blue-500 hover:text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
-                >
-                  Need Help?
-                </button>
-              </div>
-              <div className="relative">
-                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
-                  <Lock className="w-4 h-4" />
+                {/* Password Field with Show/Hide */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label htmlFor="login-password" className="text-xs font-semibold text-zinc-700 dark:text-zinc-300">
+                      Password
+                    </label>
+                    <button
+                      type="button"
+                      onClick={() => setShowResetGuidance(!showResetGuidance)}
+                      className="text-[11px] text-blue-500 hover:text-blue-600 dark:text-blue-400 hover:underline cursor-pointer"
+                    >
+                      Need Help?
+                    </button>
+                  </div>
+                  <div className="relative">
+                    <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
+                      <Lock className="w-4 h-4" />
+                    </div>
+                    <input
+                      id="login-password"
+                      type={showPassword ? 'text' : 'password'}
+                      required
+                      autoComplete="current-password"
+                      value={password}
+                      onChange={(e) => setPassword(e.target.value)}
+                      placeholder="Enter your password"
+                      className={`w-full text-xs pl-9 pr-10 py-2.5 rounded-lg border outline-hidden transition ${
+                        isDark 
+                          ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500' 
+                          : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowPassword(!showPassword)}
+                      className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                      title={showPassword ? 'Hide password' : 'Show password'}
+                      aria-label={showPassword ? 'Hide password' : 'Show password'}
+                    >
+                      {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                    </button>
+                  </div>
                 </div>
-                <input
-                  type={showPassword ? 'text' : 'password'}
-                  required
-                  autoComplete="current-password"
-                  value={password}
-                  onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Enter your password"
-                  className={`w-full text-xs pl-9 pr-10 py-2.5 rounded-lg border outline-hidden transition ${
-                    isDark 
-                      ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500' 
-                      : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
-                  }`}
-                />
+
+                {/* Remember Username Checkbox */}
+                <div className="flex items-center justify-between text-xs pt-1">
+                  <label className={`flex items-center space-x-2 cursor-pointer ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                    <input
+                      type="checkbox"
+                      checked={rememberUsername}
+                      onChange={(e) => setRememberUsername(e.target.checked)}
+                      className="w-3.5 h-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
+                    />
+                    <span>Remember username on this machine</span>
+                  </label>
+                </div>
+
+                {/* Sign In Button */}
                 <button
-                  type="button"
-                  onClick={() => setShowPassword(!showPassword)}
-                  className="absolute inset-y-0 right-0 pr-3 flex items-center text-zinc-400 hover:text-zinc-200 cursor-pointer"
-                  title={showPassword ? 'Hide password' : 'Show password'}
+                  type="submit"
+                  disabled={isLoading}
+                  className={`w-full py-2.5 px-4 rounded-lg font-bold text-xs shadow-md flex items-center justify-center space-x-2 transition cursor-pointer ${
+                    isLoading
+                      ? 'bg-zinc-600 cursor-not-allowed opacity-80 text-white'
+                      : 'btn-primary active:scale-[0.99]'
+                  }`}
                 >
-                  {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                  {isLoading ? (
+                    <>
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                      <span>Authenticating...</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShieldCheck className="w-4 h-4" />
+                      <span>Sign In to Employee Database Studio</span>
+                      <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                    </>
+                  )}
                 </button>
-              </div>
-            </div>
+              </form>
 
-            {/* Remember Username Checkbox */}
-            <div className="flex items-center justify-between text-xs pt-1">
-              <label className={`flex items-center space-x-2 cursor-pointer ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                <input
-                  type="checkbox"
-                  checked={rememberUsername}
-                  onChange={(e) => setRememberUsername(e.target.checked)}
-                  className="w-3.5 h-3.5 rounded border-zinc-300 text-blue-600 focus:ring-blue-500"
-                />
-                <span>Remember username on this machine</span>
-              </label>
-            </div>
-
-            {/* Sign In Button */}
-            <button
-              type="submit"
-              disabled={isLoading}
-              className={`w-full py-2.5 px-4 rounded-lg font-bold text-xs shadow-md flex items-center justify-center space-x-2 transition cursor-pointer ${
-                isLoading
-                  ? 'bg-zinc-600 cursor-not-allowed opacity-80 text-white'
-                  : 'btn-primary active:scale-[0.99]'
-              }`}
-            >
-              {isLoading ? (
-                <>
-                  <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Authenticating...</span>
-                </>
-              ) : (
-                <>
-                  <ShieldCheck className="w-4 h-4" />
-                  <span>Sign In to Employee Database Studio</span>
-                  <ArrowRight className="w-3.5 h-3.5 ml-1" />
-                </>
+              {/* Password Reset Guidance Box */}
+              {showResetGuidance && (
+                <div className="mt-4 p-3 rounded-xl border text-[11px] space-y-1 bg-blue-500/5 border-blue-500/20 text-blue-600 dark:text-blue-300">
+                  <div className="font-bold flex items-center space-x-1.5">
+                    <HelpCircle className="w-3.5 h-3.5" />
+                    <span>Password Reset & Recovery Policy</span>
+                  </div>
+                  <p>
+                    For security on company networks, credentials are managed centrally. If you have forgotten your password or your account is locked, please contact your designated <strong>System Administrator</strong> to issue a temporary password or reset your account in User Management.
+                  </p>
+                </div>
               )}
-            </button>
-          </form>
 
-          {/* Password Reset Guidance Box */}
-          {showResetGuidance && (
-            <div className="mt-4 p-3 rounded-xl border text-[11px] space-y-1 bg-blue-500/5 border-blue-500/20 text-blue-600 dark:text-blue-300">
-              <div className="font-bold flex items-center space-x-1.5">
-                <HelpCircle className="w-3.5 h-3.5" />
-                <span>Password Reset & Recovery Policy</span>
+              {/* Quick-Fill Demonstration Roles (Convenience for Testing) */}
+              <div className={`mt-6 pt-5 border-t text-[11px] ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
+                <span className="block text-zinc-400 font-semibold mb-2">
+                  Standard Role Accounts (Testing & Evaluation):
+                </span>
+                <div className="grid grid-cols-2 gap-1.5">
+                  <button
+                    type="button"
+                    onClick={() => handleQuickFill('admin', 'admin123')}
+                    className={`text-left p-2 rounded-lg border text-[10px] hover:border-blue-500 transition cursor-pointer ${
+                      isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                    }`}
+                  >
+                    <div className="font-bold text-blue-500">Administrator</div>
+                    <div className="text-zinc-500 font-mono">admin / admin123</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickFill('hr_lead', 'Password@123')}
+                    className={`text-left p-2 rounded-lg border text-[10px] hover:border-emerald-500 transition cursor-pointer ${
+                      isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                    }`}
+                  >
+                    <div className="font-bold text-emerald-500">HR Specialist</div>
+                    <div className="text-zinc-500 font-mono">hr_lead / Password@123</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickFill('payroll_mgr', 'Password@123')}
+                    className={`text-left p-2 rounded-lg border text-[10px] hover:border-amber-500 transition cursor-pointer ${
+                      isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                    }`}
+                  >
+                    <div className="font-bold text-amber-500">Payroll Specialist</div>
+                    <div className="text-zinc-500 font-mono">payroll_mgr / Password@123</div>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleQuickFill('auditor', 'Password@123')}
+                    className={`text-left p-2 rounded-lg border text-[10px] hover:border-purple-500 transition cursor-pointer ${
+                      isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                    }`}
+                  >
+                    <div className="font-bold text-purple-500">Read-Only Auditor</div>
+                    <div className="text-zinc-500 font-mono">auditor / Password@123</div>
+                  </button>
+                </div>
               </div>
-              <p>
-                For security on company networks, credentials are managed centrally. If you have forgotten your password or your account is locked, please contact your designated <strong>System Administrator</strong> to issue a temporary password or reset your account in User Management.
-              </p>
-            </div>
-          )}
+            </>
+          ) : (
+            /* Create Admin Control Account Form */
+            <form onSubmit={handleCreateAdminAccount} className="space-y-3.5">
+              <div className={`p-3 rounded-xl border text-[11px] flex items-start space-x-2.5 ${
+                isDark ? 'bg-blue-950/20 border-blue-900/50 text-blue-300' : 'bg-blue-50 border-blue-200 text-blue-800'
+              }`}>
+                <ShieldCheck className="w-4 h-4 shrink-0 mt-0.5 text-blue-500" />
+                <p className="leading-relaxed">
+                  Creates an <strong>Administrator Control Account</strong> with full access to User Management, Server Administration, Payroll, and Company Settings.
+                </p>
+              </div>
 
-          {/* Quick-Fill Demonstration Roles (Convenience for Testing) */}
-          <div className={`mt-6 pt-5 border-t text-[11px] ${isDark ? 'border-zinc-800' : 'border-zinc-200'}`}>
-            <span className="block text-zinc-400 font-semibold mb-2">
-              Standard Role Accounts (Testing & Evaluation):
-            </span>
-            <div className="grid grid-cols-2 gap-1.5">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="reg-admin-fullname" className="block text-xs font-semibold mb-1 text-zinc-700 dark:text-zinc-300">
+                    Full Name
+                  </label>
+                  <input
+                    id="reg-admin-fullname"
+                    type="text"
+                    required
+                    value={regFullName}
+                    onChange={(e) => setRegFullName(e.target.value)}
+                    placeholder="e.g., Priya Nair"
+                    className={`w-full text-xs px-3 py-2 rounded-lg border outline-hidden transition ${
+                      isDark
+                        ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                        : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label htmlFor="reg-admin-username" className="block text-xs font-semibold mb-1 text-zinc-700 dark:text-zinc-300">
+                    Admin Username
+                  </label>
+                  <input
+                    id="reg-admin-username"
+                    type="text"
+                    required
+                    autoComplete="username"
+                    value={regUsername}
+                    onChange={(e) => setRegUsername(e.target.value)}
+                    placeholder="e.g., admin_control"
+                    className={`w-full text-xs px-3 py-2 rounded-lg border outline-hidden transition font-mono ${
+                      isDark
+                        ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                        : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="reg-admin-email" className="block text-xs font-semibold mb-1 text-zinc-700 dark:text-zinc-300">
+                  Work Email <span className="text-[10px] font-normal text-zinc-400">(optional)</span>
+                </label>
+                <div className="relative">
+                  <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none text-zinc-400">
+                    <Mail className="w-3.5 h-3.5" />
+                  </div>
+                  <input
+                    id="reg-admin-email"
+                    type="email"
+                    autoComplete="email"
+                    value={regEmail}
+                    onChange={(e) => setRegEmail(e.target.value)}
+                    placeholder="admin.control@company.com"
+                    className={`w-full text-xs pl-9 pr-3 py-2 rounded-lg border outline-hidden transition ${
+                      isDark
+                        ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                        : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label htmlFor="reg-admin-password" className="block text-xs font-semibold mb-1 text-zinc-700 dark:text-zinc-300">
+                    Password <span className="text-[10px] font-normal text-zinc-400">(min 8 chars)</span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      id="reg-admin-password"
+                      type={showRegPassword ? 'text' : 'password'}
+                      required
+                      minLength={8}
+                      autoComplete="new-password"
+                      value={regPassword}
+                      onChange={(e) => setRegPassword(e.target.value)}
+                      placeholder="Create strong password"
+                      className={`w-full text-xs pl-3 pr-9 py-2 rounded-lg border outline-hidden transition ${
+                        isDark
+                          ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                          : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
+                      }`}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setShowRegPassword(!showRegPassword)}
+                      className="absolute inset-y-0 right-0 pr-2.5 flex items-center text-zinc-400 hover:text-zinc-200 cursor-pointer"
+                      aria-label={showRegPassword ? 'Hide admin password' : 'Show admin password'}
+                    >
+                      {showRegPassword ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                    </button>
+                  </div>
+                </div>
+                <div>
+                  <label htmlFor="reg-admin-confirm-password" className="block text-xs font-semibold mb-1 text-zinc-700 dark:text-zinc-300">
+                    Confirm Password
+                  </label>
+                  <input
+                    id="reg-admin-confirm-password"
+                    type={showRegPassword ? 'text' : 'password'}
+                    required
+                    minLength={8}
+                    autoComplete="new-password"
+                    value={regConfirmPassword}
+                    onChange={(e) => setRegConfirmPassword(e.target.value)}
+                    placeholder="Re-enter password"
+                    className={`w-full text-xs px-3 py-2 rounded-lg border outline-hidden transition ${
+                      isDark
+                        ? 'bg-black/50 border-zinc-700 text-white focus:border-blue-500 focus:ring-1 focus:ring-blue-500'
+                        : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a] focus:ring-1 focus:ring-[#1e3a8a]'
+                    }`}
+                  />
+                </div>
+              </div>
+
+              {/* Admin Control Authorization Box when an existing admin or setup key is present */}
+              {adminSetupStatus.requiresAuthorization && (
+                <div className={`p-3 rounded-xl border space-y-2.5 ${
+                  isDark ? 'bg-black/40 border-zinc-800' : 'bg-zinc-50 border-zinc-200'
+                }`}>
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="text-[11px] font-bold flex items-center space-x-1.5 text-zinc-700 dark:text-zinc-200">
+                      <KeyRound className="w-3.5 h-3.5 text-amber-500" />
+                      <span>Admin Control Authorization</span>
+                    </span>
+                    <div className="flex items-center space-x-2">
+                      {!import.meta.env.PROD && adminSetupStatus.hasAdminAccount && !useSetupKeyAuth && (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setAuthAdminUsername('admin');
+                            setAuthAdminPassword('admin123');
+                          }}
+                          className="text-[10px] font-semibold text-blue-500 hover:underline cursor-pointer"
+                        >
+                          Use default admin
+                        </button>
+                      )}
+                      {adminSetupStatus.hasAdminAccount && adminSetupStatus.setupKeyConfigured && (
+                        <button
+                          type="button"
+                          onClick={() => setUseSetupKeyAuth(!useSetupKeyAuth)}
+                          className="text-[10px] font-semibold text-zinc-500 hover:text-zinc-300 underline cursor-pointer"
+                        >
+                          {useSetupKeyAuth ? 'Use Admin Login' : 'Use Setup Key'}
+                        </button>
+                      )}
+                    </div>
+                  </div>
+
+                  {useSetupKeyAuth || !adminSetupStatus.hasAdminAccount ? (
+                    <div>
+                      <label htmlFor="reg-admin-setup-key" className="block text-[11px] font-medium mb-1 text-zinc-500 dark:text-zinc-400">
+                        Admin Setup Key
+                      </label>
+                      <input
+                        id="reg-admin-setup-key"
+                        type="password"
+                        value={adminSetupKey}
+                        onChange={(e) => setAdminSetupKey(e.target.value)}
+                        placeholder="Enter server ADMIN_SETUP_KEY"
+                        className={`w-full text-xs px-3 py-2 rounded-lg border outline-hidden transition font-mono ${
+                          isDark
+                            ? 'bg-black/60 border-zinc-700 text-white focus:border-blue-500'
+                            : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a]'
+                        }`}
+                      />
+                    </div>
+                  ) : (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                      <div>
+                        <label htmlFor="reg-auth-username" className="block text-[11px] font-medium mb-1 text-zinc-500 dark:text-zinc-400">
+                          Existing Admin Username
+                        </label>
+                        <input
+                          id="reg-auth-username"
+                          type="text"
+                          value={authAdminUsername}
+                          onChange={(e) => setAuthAdminUsername(e.target.value)}
+                          placeholder="admin"
+                          className={`w-full text-xs px-2.5 py-1.5 rounded-lg border outline-hidden transition ${
+                            isDark
+                              ? 'bg-black/60 border-zinc-700 text-white focus:border-blue-500'
+                              : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a]'
+                          }`}
+                        />
+                      </div>
+                      <div>
+                        <label htmlFor="reg-auth-password" className="block text-[11px] font-medium mb-1 text-zinc-500 dark:text-zinc-400">
+                          Existing Admin Password
+                        </label>
+                        <input
+                          id="reg-auth-password"
+                          type="password"
+                          value={authAdminPassword}
+                          onChange={(e) => setAuthAdminPassword(e.target.value)}
+                          placeholder="Authorizing password"
+                          className={`w-full text-xs px-2.5 py-1.5 rounded-lg border outline-hidden transition ${
+                            isDark
+                              ? 'bg-black/60 border-zinc-700 text-white focus:border-blue-500'
+                              : 'bg-white border-zinc-300 text-black focus:border-[#1e3a8a]'
+                          }`}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               <button
-                type="button"
-                onClick={() => handleQuickFill('admin', 'admin123')}
-                className={`text-left p-2 rounded-lg border text-[10px] hover:border-blue-500 transition cursor-pointer ${
-                  isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
+                type="submit"
+                disabled={isLoading}
+                className={`w-full py-2.5 px-4 rounded-lg font-bold text-xs shadow-md flex items-center justify-center space-x-2 transition cursor-pointer ${
+                  isLoading
+                    ? 'bg-zinc-600 cursor-not-allowed opacity-80 text-white'
+                    : 'btn-primary active:scale-[0.99]'
                 }`}
               >
-                <div className="font-bold text-blue-500">Administrator</div>
-                <div className="text-zinc-500 font-mono">admin / admin123</div>
+                {isLoading ? (
+                  <>
+                    <RefreshCw className="w-4 h-4 animate-spin" />
+                    <span>Creating Admin Control Account...</span>
+                  </>
+                ) : (
+                  <>
+                    <UserPlus className="w-4 h-4" />
+                    <span>Create Admin Control Account</span>
+                    <ArrowRight className="w-3.5 h-3.5 ml-1" />
+                  </>
+                )}
               </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('hr_lead', 'Password@123')}
-                className={`text-left p-2 rounded-lg border text-[10px] hover:border-emerald-500 transition cursor-pointer ${
-                  isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
-                }`}
-              >
-                <div className="font-bold text-emerald-500">HR Specialist</div>
-                <div className="text-zinc-500 font-mono">hr_lead / Password@123</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('payroll_mgr', 'Password@123')}
-                className={`text-left p-2 rounded-lg border text-[10px] hover:border-amber-500 transition cursor-pointer ${
-                  isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
-                }`}
-              >
-                <div className="font-bold text-amber-500">Payroll Specialist</div>
-                <div className="text-zinc-500 font-mono">payroll_mgr / Password@123</div>
-              </button>
-              <button
-                type="button"
-                onClick={() => handleQuickFill('auditor', 'Password@123')}
-                className={`text-left p-2 rounded-lg border text-[10px] hover:border-purple-500 transition cursor-pointer ${
-                  isDark ? 'border-zinc-800 bg-black/40 hover:bg-black/60' : 'border-zinc-200 bg-zinc-50 hover:bg-zinc-100'
-                }`}
-              >
-                <div className="font-bold text-purple-500">Read-Only Auditor</div>
-                <div className="text-zinc-500 font-mono">auditor / Password@123</div>
-              </button>
-            </div>
-          </div>
+
+              <div className="text-center pt-1">
+                <button
+                  type="button"
+                  onClick={() => handleSwitchMode('login')}
+                  className="text-[11px] text-zinc-500 hover:text-zinc-300 underline cursor-pointer"
+                >
+                  Already have an account? Return to Sign In
+                </button>
+              </div>
+            </form>
+          )}
         </div>
       </div>
 

@@ -73,6 +73,22 @@ test('PostgreSQL SSL normalization prevents pg v8 ?sslmode=require override whil
   const localDb = normalizePostgresConfig('postgresql://postgres:postgres@localhost:5432/app');
   assert.equal(localDb.isLocalHost, true);
   assert.equal(localDb.ssl, undefined);
+
+  // Regression test: surrounding quotes or KEY= prefix must be stripped so pg-connection-string never falls back to hostname 'base'
+  const quoted = normalizePostgresConfig(
+    '"postgresql://postgres:pass@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require"'
+  );
+  assert.equal(quoted.host, 'aws-0-ap-south-1.pooler.supabase.com');
+  assert.deepEqual(quoted.ssl, { rejectUnauthorized: false });
+
+  assert.throws(
+    () => normalizePostgresConfig('base'),
+    (err: any) => err instanceof DatabaseError && err.statusCode === 503
+  );
+  assert.throws(
+    () => normalizePostgresConfig('postgresql://user:pass@base:5432/db'),
+    (err: any) => err instanceof DatabaseError && err.statusCode === 503
+  );
 });
 
 test('Production runtime fails safely with 503 instead of falling back to local JSON when DB env is missing', async () => {

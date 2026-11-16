@@ -24,22 +24,45 @@ export type PostgresConnectionSource =
   | 'POSTGRES_URL_NON_POOLING'
   | 'NONE';
 
+export function sanitizeConnectionString(raw: string | undefined): string {
+  if (!raw) return '';
+  let clean = raw.trim();
+  // Strip accidental surrounding quotes from pasted .env / dashboard values
+  while (
+    clean.length >= 2 &&
+    ((clean.startsWith('"') && clean.endsWith('"')) ||
+      (clean.startsWith("'") && clean.endsWith("'")))
+  ) {
+    clean = clean.slice(1, -1).trim();
+  }
+  // Strip accidental KEY= prefix if pasted directly from a .env line
+  clean = clean.replace(/^(?:DATABASE_URL|POSTGRES_URL|POSTGRES_URL_NON_POOLING)\s*=\s*/i, '').trim();
+  while (
+    clean.length >= 2 &&
+    ((clean.startsWith('"') && clean.endsWith('"')) ||
+      (clean.startsWith("'") && clean.endsWith("'")))
+  ) {
+    clean = clean.slice(1, -1).trim();
+  }
+  return clean;
+}
+
 export function resolvePostgresConnection(
   mode: 'runtime' | 'migration' = 'runtime'
 ): { connectionString: string; sourceVar: PostgresConnectionSource } {
   if (mode === 'migration') {
-    const nonPooling = process.env.POSTGRES_URL_NON_POOLING?.trim();
+    const nonPooling = sanitizeConnectionString(process.env.POSTGRES_URL_NON_POOLING);
     if (nonPooling) return { connectionString: nonPooling, sourceVar: 'POSTGRES_URL_NON_POOLING' };
-    const dbUrl = process.env.DATABASE_URL?.trim();
+    const dbUrl = sanitizeConnectionString(process.env.DATABASE_URL);
     if (dbUrl) return { connectionString: dbUrl, sourceVar: 'DATABASE_URL' };
-    const pgUrl = process.env.POSTGRES_URL?.trim();
+    const pgUrl = sanitizeConnectionString(process.env.POSTGRES_URL);
     if (pgUrl) return { connectionString: pgUrl, sourceVar: 'POSTGRES_URL' };
     return { connectionString: '', sourceVar: 'NONE' };
   }
 
-  const dbUrl = process.env.DATABASE_URL?.trim();
+  const dbUrl = sanitizeConnectionString(process.env.DATABASE_URL);
   if (dbUrl) return { connectionString: dbUrl, sourceVar: 'DATABASE_URL' };
-  const pgUrl = process.env.POSTGRES_URL?.trim();
+  const pgUrl = sanitizeConnectionString(process.env.POSTGRES_URL);
   if (pgUrl) return { connectionString: pgUrl, sourceVar: 'POSTGRES_URL' };
   return { connectionString: '', sourceVar: 'NONE' };
 }
@@ -54,57 +77,67 @@ export interface NormalizedPostgresConfig {
 
 /**
  * Normalizes PostgreSQL connection string for pg v8 + Supabase pooler/direct SSL.
- * Note: pg-connection-string parses ?sslmode=require as verify-full (ssl: {}),
- * which overrides explicit pool ssl options and fails on Supabase pooler chains.
- * Removing conflicting sslmode for non-localhost TLS and enforcing
- * { rejectUnauthorized: false } (unless verify-full is explicitly requested)
- * prevents SELF_SIGNED_CERT_IN_CHAIN errors.
+ * Also validates protocol & host so malformed/quoted strings never trigger
+ * pg-connection-string's internal `new URL(str, 'postgres://base')` ENOTFOUND base bug.
  */
 export function normalizePostgresConfig(rawConnectionString: string): NormalizedPostgresConfig {
+  const cleaned = sanitizeConnectionString(rawConnectionString);
+  if (!/^postgres(?:ql)?:\/\//i.test(cleaned)) {
+    throw new DatabaseError(
+      'Invalid PostgreSQL connection string: expected a postgres:// or postgresql:// URI.',
+      503
+    );
+  }
+
+  let parsed: URL;
   try {
-    const parsed = new URL(rawConnectionString);
-    const hostname = (parsed.hostname || '').toLowerCase();
-    const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
-    const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase() || '';
+    parsed = new URL(cleaned);
+  } catch {
+    throw new DatabaseError(
+      'Invalid PostgreSQL connection string format. Verify URL encoding of username/password.',
+      503
+    );
+  }
 
-    let ssl: NormalizedPostgresConfig['ssl'];
-    let sslModeNormalized = false;
+  const hostname = (parsed.hostname || '').toLowerCase();
+  if (!hostname || hostname === 'base') {
+    throw new DatabaseError(
+      'Invalid PostgreSQL connection string: missing or invalid database host.',
+      503
+    );
+  }
 
-    if (!isLocalHost) {
-      if (sslMode === 'verify-full') {
-        ssl = { rejectUnauthorized: true };
-      } else if (sslMode === 'disable') {
-        ssl = undefined;
-      } else {
-        if (sslMode) {
-          parsed.searchParams.delete('sslmode');
-          sslModeNormalized = true;
-        }
-        // Supabase pooler URLs may include supa=base-pooler.x; keep clean URL while preserving other params
-        ssl = { rejectUnauthorized: false };
+  const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+  const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase() || '';
+
+  let ssl: NormalizedPostgresConfig['ssl'];
+  let sslModeNormalized = false;
+
+  if (!isLocalHost) {
+    if (sslMode === 'verify-full') {
+      ssl = { rejectUnauthorized: true };
+    } else if (sslMode === 'disable') {
+      ssl = undefined;
+    } else {
+      if (sslMode) {
+        parsed.searchParams.delete('sslmode');
+        sslModeNormalized = true;
       }
-    } else if (sslMode === 'require' || sslMode === 'verify-ca') {
-      parsed.searchParams.delete('sslmode');
-      sslModeNormalized = true;
       ssl = { rejectUnauthorized: false };
     }
-
-    return {
-      connectionString: parsed.toString(),
-      ssl,
-      host: parsed.hostname || 'unknown',
-      isLocalHost,
-      sslModeNormalized,
-    };
-  } catch {
-    return {
-      connectionString: rawConnectionString,
-      ssl: { rejectUnauthorized: false },
-      host: 'unknown',
-      isLocalHost: false,
-      sslModeNormalized: false,
-    };
+  } else if (sslMode === 'require' || sslMode === 'verify-ca') {
+    parsed.searchParams.delete('sslmode');
+    sslModeNormalized = true;
+    ssl = { rejectUnauthorized: false };
   }
+
+  return {
+    connectionString: parsed.toString(),
+    ssl,
+    host: parsed.hostname || 'unknown',
+    isLocalHost,
+    sslModeNormalized,
+  };
 }
 
 let poolInstance: Pool | null = null;
@@ -189,13 +222,22 @@ export const pool = {
 export function getDatabaseDiagnostics() {
   const { connectionString, sourceVar } = resolvePostgresConnection('runtime');
   const isConfigured = Boolean(connectionString);
-  const normalized = isConfigured ? normalizePostgresConfig(connectionString) : null;
+  let normalized: NormalizedPostgresConfig | null = null;
+  let configError: string | null = null;
+  if (isConfigured) {
+    try {
+      normalized = normalizePostgresConfig(connectionString);
+    } catch (err: any) {
+      configError = sanitizeDbErrorMessage(err);
+    }
+  }
   return {
     configured: isConfigured,
     sourceVar,
     host: normalized?.host || null,
     sslEnabled: Boolean(normalized?.ssl),
     sslModeNormalized: normalized?.sslModeNormalized || false,
+    configError,
     productionMode: isProductionRuntime(),
     localJsonFallbackAllowed: !isProductionRuntime() && !isConfigured,
   };
@@ -302,20 +344,40 @@ function saveLocalDB(data: LocalDatabaseSchema) {
   }
 }
 
+let warnedInvalidDevUri = false;
+
+export function hasUsablePostgresUri(mode: 'runtime' | 'migration' = 'runtime'): boolean {
+  const { connectionString } = resolvePostgresConnection(mode);
+  if (!connectionString) return false;
+  try {
+    normalizePostgresConfig(connectionString);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export async function query(text: string, params: any[] = []): Promise<{ rows: any[]; rowCount: number }> {
   const { connectionString } = resolvePostgresConnection('runtime');
 
   if (connectionString) {
-    try {
-      const res = await getPool().query(text, params);
-      return { rows: res.rows, rowCount: res.rowCount || 0 };
-    } catch (err: any) {
-      const sanitized = sanitizeDbErrorMessage(err);
-      console.error('[PostgreSQL Query Error]:', sanitized);
-      if (isConnectivityError(err)) {
-        throw new DatabaseError(`Database connection failed: ${sanitized}`, 503);
+    if (!isProductionRuntime() && !hasUsablePostgresUri('runtime')) {
+      if (!warnedInvalidDevUri) {
+        warnedInvalidDevUri = true;
+        console.warn('[Employee Database Studio DB] Ignoring non-PostgreSQL DATABASE_URL in development mode; using local dev store.');
       }
-      throw new DatabaseError(`Database query failed: ${sanitized}`, 500);
+    } else {
+      try {
+        const res = await getPool().query(text, params);
+        return { rows: res.rows, rowCount: res.rowCount || 0 };
+      } catch (err: any) {
+        const sanitized = sanitizeDbErrorMessage(err);
+        console.error('[PostgreSQL Query Error]:', sanitized);
+        if (isConnectivityError(err)) {
+          throw new DatabaseError(`Database connection failed: ${sanitized}`, 503);
+        }
+        throw new DatabaseError(`Database query failed: ${sanitized}`, 500);
+      }
     }
   }
 
