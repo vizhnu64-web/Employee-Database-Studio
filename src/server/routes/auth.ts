@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import jwt from 'jsonwebtoken';
 import { query } from '../db/pool';
-import { JWT_SECRET, authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
+import { getJwtSecret, authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
 import rateLimit from 'express-rate-limit';
 
 const router = Router();
@@ -82,8 +82,10 @@ router.post('/login', loginLimiter, async (req, res) => {
       mustChangePassword: user.must_change_password || false
     };
 
+    const secret = getJwtSecret();
+
     // 12-hour expiration for security
-    const token = jwt.sign(tokenPayload, JWT_SECRET, { expiresIn: '12h' });
+    const token = jwt.sign(tokenPayload, secret, { expiresIn: '12h' });
 
     res.json({
       success: true,
@@ -91,8 +93,11 @@ router.post('/login', loginLimiter, async (req, res) => {
       user: tokenPayload
     });
   } catch (err: any) {
-    console.error('[Auth Error] /login:', err);
-    res.status(500).json({ success: false, error: 'Authentication service error. Please try again.' });
+    console.error('[Auth Error] /login:', err?.message || err);
+    res.status(err?.statusCode || 500).json({
+      success: false,
+      error: err?.statusCode === 503 ? err.message : 'Authentication service error. Please try again.'
+    });
   }
 });
 
@@ -124,7 +129,7 @@ router.get('/verify', authenticateToken, async (req: AuthRequest, res) => {
       }
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -150,7 +155,7 @@ router.get('/users', authenticateToken, requireRole(['admin']), async (req: Auth
 
     res.json({ success: true, users: sanitizedUsers });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -213,7 +218,7 @@ router.post('/users', authenticateToken, requireRole(['admin']), async (req: Aut
       }
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -264,7 +269,7 @@ router.put('/users/:id', authenticateToken, requireRole(['admin']), async (req: 
 
     res.json({ success: true, message: `User ${targetUser.username} updated successfully.` });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -307,7 +312,7 @@ router.delete('/users/:id', authenticateToken, requireRole(['admin']), async (re
 
     res.json({ success: true, message: `User ${targetUser.username} deleted successfully.` });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -355,7 +360,7 @@ router.post('/admin-reset-password', authenticateToken, requireRole(['admin']), 
       message: `Password for ${targetUser.username} has been reset. User will be prompted to change password on next login.`
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -408,7 +413,7 @@ router.post('/change-password', authenticateToken, async (req: AuthRequest, res)
 
     res.json({ success: true, message: 'Password changed successfully.' });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -431,7 +436,7 @@ router.post('/logout', authenticateToken, async (req: AuthRequest, res) => {
     }
     res.json({ success: true, message: 'Logged out successfully.' });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -441,7 +446,7 @@ router.get('/audit-logs', authenticateToken, requireRole(['admin']), async (req:
     const logsRes = await query('SELECT * FROM audit_logs ORDER BY id DESC LIMIT 100');
     res.json({ success: true, logs: logsRes.rows });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 

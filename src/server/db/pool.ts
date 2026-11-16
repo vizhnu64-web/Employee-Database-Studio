@@ -1,27 +1,209 @@
-import { Pool } from 'pg';
+import { Pool, PoolConfig } from 'pg';
 import fs from 'fs';
 import path from 'path';
 import dotenv from 'dotenv';
-import bcrypt from 'bcrypt';
 
 dotenv.config();
 
-const connectionString = process.env.DATABASE_URL || 'postgresql://postgres:postgres@localhost:5432/peopledesk_studio';
+export class DatabaseError extends Error {
+  public readonly statusCode: number;
+  constructor(message: string, statusCode = 503) {
+    super(message);
+    this.name = 'DatabaseError';
+    this.statusCode = statusCode;
+  }
+}
 
-export const pool = new Pool({
-  connectionString,
-  max: 20,
-  idleTimeoutMillis: 30000,
-  connectionTimeoutMillis: 2000,
-});
+export function isProductionRuntime(): boolean {
+  return process.env.VERCEL === '1' || process.env.NODE_ENV === 'production';
+}
 
-pool.on('error', (err) => {
-  // Silent fallback to file-backed database if Postgres is not running
-});
+export type PostgresConnectionSource =
+  | 'DATABASE_URL'
+  | 'POSTGRES_URL'
+  | 'POSTGRES_URL_NON_POOLING'
+  | 'NONE';
 
-// Resilient local file-backed database for standalone/offline LAN operation
-const DATA_DIR = path.resolve(process.cwd(), 'data');
-const DB_FILE = path.resolve(DATA_DIR, 'peopledesk_lan_db.json');
+export function resolvePostgresConnection(
+  mode: 'runtime' | 'migration' = 'runtime'
+): { connectionString: string; sourceVar: PostgresConnectionSource } {
+  if (mode === 'migration') {
+    const nonPooling = process.env.POSTGRES_URL_NON_POOLING?.trim();
+    if (nonPooling) return { connectionString: nonPooling, sourceVar: 'POSTGRES_URL_NON_POOLING' };
+    const dbUrl = process.env.DATABASE_URL?.trim();
+    if (dbUrl) return { connectionString: dbUrl, sourceVar: 'DATABASE_URL' };
+    const pgUrl = process.env.POSTGRES_URL?.trim();
+    if (pgUrl) return { connectionString: pgUrl, sourceVar: 'POSTGRES_URL' };
+    return { connectionString: '', sourceVar: 'NONE' };
+  }
+
+  const dbUrl = process.env.DATABASE_URL?.trim();
+  if (dbUrl) return { connectionString: dbUrl, sourceVar: 'DATABASE_URL' };
+  const pgUrl = process.env.POSTGRES_URL?.trim();
+  if (pgUrl) return { connectionString: pgUrl, sourceVar: 'POSTGRES_URL' };
+  return { connectionString: '', sourceVar: 'NONE' };
+}
+
+export interface NormalizedPostgresConfig {
+  connectionString: string;
+  ssl: boolean | { rejectUnauthorized: boolean } | undefined;
+  host: string;
+  isLocalHost: boolean;
+  sslModeNormalized: boolean;
+}
+
+/**
+ * Normalizes PostgreSQL connection string for pg v8 + Supabase pooler/direct SSL.
+ * Note: pg-connection-string parses ?sslmode=require as verify-full (ssl: {}),
+ * which overrides explicit pool ssl options and fails on Supabase pooler chains.
+ * Removing conflicting sslmode for non-localhost TLS and enforcing
+ * { rejectUnauthorized: false } (unless verify-full is explicitly requested)
+ * prevents SELF_SIGNED_CERT_IN_CHAIN errors.
+ */
+export function normalizePostgresConfig(rawConnectionString: string): NormalizedPostgresConfig {
+  try {
+    const parsed = new URL(rawConnectionString);
+    const hostname = (parsed.hostname || '').toLowerCase();
+    const isLocalHost = hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '::1';
+    const sslMode = parsed.searchParams.get('sslmode')?.toLowerCase() || '';
+
+    let ssl: NormalizedPostgresConfig['ssl'];
+    let sslModeNormalized = false;
+
+    if (!isLocalHost) {
+      if (sslMode === 'verify-full') {
+        ssl = { rejectUnauthorized: true };
+      } else if (sslMode === 'disable') {
+        ssl = undefined;
+      } else {
+        if (sslMode) {
+          parsed.searchParams.delete('sslmode');
+          sslModeNormalized = true;
+        }
+        // Supabase pooler URLs may include supa=base-pooler.x; keep clean URL while preserving other params
+        ssl = { rejectUnauthorized: false };
+      }
+    } else if (sslMode === 'require' || sslMode === 'verify-ca') {
+      parsed.searchParams.delete('sslmode');
+      sslModeNormalized = true;
+      ssl = { rejectUnauthorized: false };
+    }
+
+    return {
+      connectionString: parsed.toString(),
+      ssl,
+      host: parsed.hostname || 'unknown',
+      isLocalHost,
+      sslModeNormalized,
+    };
+  } catch {
+    return {
+      connectionString: rawConnectionString,
+      ssl: { rejectUnauthorized: false },
+      host: 'unknown',
+      isLocalHost: false,
+      sslModeNormalized: false,
+    };
+  }
+}
+
+let poolInstance: Pool | null = null;
+let cachedConnKey = '';
+
+function sanitizeDbErrorMessage(err: any): string {
+  const msg = String(err?.message || 'Database connection error');
+  // Never leak URLs or credentials
+  return msg.replace(/postgres(?:ql)?:\/\/[^\s]+/gi, '[REDACTED_POSTGRES_URL]');
+}
+
+function isConnectivityError(err: any): boolean {
+  const code = String(err?.code || '');
+  const msg = String(err?.message || '').toLowerCase();
+  return (
+    ['ECONNREFUSED', 'ENOTFOUND', 'ETIMEDOUT', 'ECONNRESET', 'SELF_SIGNED_CERT_IN_CHAIN', '28P01', '3D000', 'XX000'].includes(code) ||
+    msg.includes('timeout') ||
+    msg.includes('certificate') ||
+    msg.includes('ssl') ||
+    msg.includes('connection terminated') ||
+    msg.includes('connect')
+  );
+}
+
+export function getPool(mode: 'runtime' | 'migration' = 'runtime'): Pool {
+  const { connectionString, sourceVar } = resolvePostgresConnection(mode);
+  if (!connectionString) {
+    throw new DatabaseError(
+      'PostgreSQL is not configured. Set DATABASE_URL or POSTGRES_URL environment variable.',
+      503
+    );
+  }
+
+  const normalized = normalizePostgresConfig(connectionString);
+  const connKey = `${mode}:${sourceVar}:${normalized.connectionString}`;
+
+  if (poolInstance && cachedConnKey === connKey) {
+    return poolInstance;
+  }
+
+  if (poolInstance) {
+    poolInstance.end().catch(() => {});
+    poolInstance = null;
+  }
+
+  const isServerless = process.env.VERCEL === '1' || Boolean(process.env.AWS_LAMBDA_FUNCTION_NAME);
+  poolInstance = new Pool({
+    connectionString: normalized.connectionString,
+    ssl: normalized.ssl as PoolConfig['ssl'],
+    max: mode === 'migration' ? 2 : (isServerless ? 3 : 10),
+    idleTimeoutMillis: isServerless ? 10000 : 30000,
+    connectionTimeoutMillis: 5000,
+    allowExitOnIdle: isServerless,
+  });
+
+  poolInstance.on('error', (err) => {
+    console.error('[Employee Database Studio Pool Error]:', sanitizeDbErrorMessage(err));
+  });
+
+  cachedConnKey = connKey;
+  return poolInstance;
+}
+
+export async function resetPoolForTesting(): Promise<void> {
+  if (poolInstance) {
+    await poolInstance.end().catch(() => {});
+  }
+  poolInstance = null;
+  cachedConnKey = '';
+}
+
+/**
+ * Lazy pool proxy so importing `pool` never attempts network I/O or crashes at module load time.
+ */
+export const pool = {
+  connect: () => getPool().connect(),
+  query: (text: string, params?: any[]) => getPool().query(text, params),
+  end: () => (poolInstance ? poolInstance.end() : Promise.resolve()),
+  on: (event: any, listener: any) => getPool().on(event, listener),
+};
+
+export function getDatabaseDiagnostics() {
+  const { connectionString, sourceVar } = resolvePostgresConnection('runtime');
+  const isConfigured = Boolean(connectionString);
+  const normalized = isConfigured ? normalizePostgresConfig(connectionString) : null;
+  return {
+    configured: isConfigured,
+    sourceVar,
+    host: normalized?.host || null,
+    sslEnabled: Boolean(normalized?.ssl),
+    sslModeNormalized: normalized?.sslModeNormalized || false,
+    productionMode: isProductionRuntime(),
+    localJsonFallbackAllowed: !isProductionRuntime() && !isConfigured,
+  };
+}
+
+// Local development-only JSON file store (strictly forbidden in production / Vercel)
+const getDataDir = () => path.resolve(process.cwd(), 'data');
+const getDbFile = () => path.resolve(getDataDir(), 'peopledesk_lan_db.json');
 
 interface LocalDatabaseSchema {
   companies: any[];
@@ -80,17 +262,22 @@ function getInitialDB(): LocalDatabaseSchema {
 }
 
 function loadLocalDB(): LocalDatabaseSchema {
+  if (isProductionRuntime()) {
+    throw new DatabaseError('Local JSON storage fallback is disabled in production.', 503);
+  }
+  const dataDir = getDataDir();
+  const dbFile = getDbFile();
   try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
     }
-    if (fs.existsSync(DB_FILE)) {
-      const data = fs.readFileSync(DB_FILE, 'utf-8');
+    if (fs.existsSync(dbFile)) {
+      const data = fs.readFileSync(dbFile, 'utf-8');
       const parsed = JSON.parse(data);
       return { ...getInitialDB(), ...parsed };
     }
-  } catch (err) {
-    console.warn('[Employee Database Studio DB] Error reading file DB, initializing empty structure:', err);
+  } catch (err: any) {
+    console.warn('[Employee Database Studio DB] Error reading local dev DB, initializing empty structure:', err?.message);
   }
   const initial = getInitialDB();
   saveLocalDB(initial);
@@ -98,48 +285,50 @@ function loadLocalDB(): LocalDatabaseSchema {
 }
 
 function saveLocalDB(data: LocalDatabaseSchema) {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    const tempFile = `${DB_FILE}.tmp`;
-    fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
-    fs.renameSync(tempFile, DB_FILE);
-  } catch (err) {
-    console.error('[Employee Database Studio DB] Error saving local DB:', err);
+  if (isProductionRuntime()) {
+    throw new DatabaseError('Local JSON storage fallback is disabled in production.', 503);
   }
-}
-
-let isPgHealthy = false;
-let pgChecked = false;
-
-async function checkPgHealth(): Promise<boolean> {
-  if (pgChecked && !isPgHealthy) return false;
+  const dataDir = getDataDir();
+  const dbFile = getDbFile();
   try {
-    const client = await pool.connect();
-    client.release();
-    isPgHealthy = true;
-    pgChecked = true;
-    return true;
-  } catch (e) {
-    isPgHealthy = false;
-    pgChecked = true;
-    return false;
+    if (!fs.existsSync(dataDir)) {
+      fs.mkdirSync(dataDir, { recursive: true });
+    }
+    const tempFile = `${dbFile}.tmp`;
+    fs.writeFileSync(tempFile, JSON.stringify(data, null, 2), 'utf-8');
+    fs.renameSync(tempFile, dbFile);
+  } catch (err: any) {
+    console.error('[Employee Database Studio DB] Error saving local dev DB:', err?.message);
   }
 }
 
 export async function query(text: string, params: any[] = []): Promise<{ rows: any[]; rowCount: number }> {
-  const hasPg = await checkPgHealth();
-  if (hasPg) {
+  const { connectionString } = resolvePostgresConnection('runtime');
+
+  if (connectionString) {
     try {
-      const res = await pool.query(text, params);
+      const res = await getPool().query(text, params);
       return { rows: res.rows, rowCount: res.rowCount || 0 };
-    } catch (err) {
-      console.warn('[PostgreSQL Query Error, falling back to local store]:', err);
+    } catch (err: any) {
+      const sanitized = sanitizeDbErrorMessage(err);
+      console.error('[PostgreSQL Query Error]:', sanitized);
+      if (isConnectivityError(err)) {
+        throw new DatabaseError(`Database connection failed: ${sanitized}`, 503);
+      }
+      throw new DatabaseError(`Database query failed: ${sanitized}`, 500);
     }
   }
 
-  // File-backed Local & LAN Database Engine
+  // No DATABASE_URL / POSTGRES_URL configured:
+  // Strictly fail in production/Vercel instead of silently using ephemeral local disk
+  if (isProductionRuntime()) {
+    throw new DatabaseError(
+      'Database service is unavailable: DATABASE_URL or POSTGRES_URL environment variable is required in production.',
+      503
+    );
+  }
+
+  // Non-production local development/unit-test store
   const db = loadLocalDB();
   const trimmed = text.trim();
   const upper = trimmed.toUpperCase();

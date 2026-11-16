@@ -25,7 +25,7 @@ router.get('/status', authenticateToken, async (req: AuthRequest, res) => {
       res.json({ success: true, license: resLic.rows[0] });
     }
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -47,7 +47,7 @@ router.post('/activate', authenticateToken, requireRole(['admin']), async (req: 
 
     res.json({ success: true, message: 'License activated successfully for offline LAN usage.' });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 

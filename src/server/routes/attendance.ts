@@ -23,7 +23,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
     const result = await query(sql, params);
     res.json({ success: true, attendance: result.rows });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -49,7 +49,7 @@ router.post('/sync', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, message: `Successfully synced ${records.length} attendance records.` });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -60,7 +60,7 @@ router.get('/shifts', authenticateToken, async (req: AuthRequest, res) => {
     const result = await query('SELECT * FROM shifts WHERE company_id = $1 ORDER BY id ASC', [companyId]);
     res.json({ success: true, shifts: result.rows });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -116,7 +116,7 @@ router.post('/shifts', authenticateToken, requireRole(['admin', 'hr']), async (r
 
     res.json({ success: true, shift: insertRes.rows[0] });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -131,7 +131,7 @@ router.get('/holidays', authenticateToken, async (req: AuthRequest, res) => {
     );
     res.json({ success: true, holidays: result.rows });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -153,7 +153,7 @@ router.post('/holidays', authenticateToken, requireRole(['admin', 'hr']), async 
 
     res.json({ success: true, holiday: insertRes.rows[0] });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -165,7 +165,7 @@ router.delete('/holidays/:id', authenticateToken, requireRole(['admin', 'hr']), 
     await query('DELETE FROM holiday_calendar WHERE id = $1 AND company_id = $2', [id, companyId]);
     res.json({ success: true, message: 'Holiday removed successfully.' });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -198,7 +198,7 @@ router.post('/calculate', authenticateToken, async (req: AuthRequest, res) => {
       }
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 

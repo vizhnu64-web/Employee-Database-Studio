@@ -49,7 +49,7 @@ router.get('/:employeeId', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, documents });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -144,8 +144,8 @@ router.post('/upload', authenticateToken, upload.single('file'), async (req: Aut
       }
     });
   } catch (err: any) {
-    console.error('[Document Upload Error]:', err);
-    res.status(500).json({ success: false, error: err.message || 'Failed to upload document.' });
+    console.error('[Document Upload Error]:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Failed to upload document.' });
   }
 });
 
@@ -179,8 +179,8 @@ router.get('/preview/:id', authenticateToken, async (req: AuthRequest, res) => {
       expiresInSeconds: 300
     });
   } catch (err: any) {
-    console.error('[Document Preview Error]:', err);
-    res.status(500).json({ success: false, error: err.message || 'Could not generate preview link.' });
+    console.error('[Document Preview Error]:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Could not generate preview link.' });
   }
 });
 
@@ -208,8 +208,8 @@ router.get('/download/:id', authenticateToken, async (req: AuthRequest, res) => 
     res.setHeader('Content-Disposition', `attachment; filename="${encodeURIComponent(doc.file_name)}"`);
     res.send(buffer);
   } catch (err: any) {
-    console.error('[Document Download Error]:', err);
-    res.status(500).json({ success: false, error: err.message || 'Failed to download document.' });
+    console.error('[Document Download Error]:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Failed to download document.' });
   }
 });
 
@@ -250,8 +250,8 @@ router.delete('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, message: 'Document deleted successfully.' });
   } catch (err: any) {
-    console.error('[Document Delete Error]:', err);
-    res.status(500).json({ success: false, error: err.message || 'Failed to delete document.' });
+    console.error('[Document Delete Error]:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Failed to delete document.' });
   }
 });
 

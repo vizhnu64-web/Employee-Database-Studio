@@ -6,10 +6,11 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "tsx server.ts",
+    "dev": "PORT=3000 tsx server.ts",
     "start": "tsx server.ts",
     "server:dev": "tsx watch server.ts",
     "build": "vite build",
+    "migrate": "tsx scripts/migrate.ts",
     "test": "tsx --test src/utils/*.test.ts src/server/*.test.ts",
     "clean": "rm -rf dist release",
     "lint": "tsc --noEmit"

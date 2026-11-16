@@ -2,9 +2,10 @@ import { Router } from 'express';
 import multer from 'multer';
 import path from 'path';
 import crypto from 'crypto';
+import jwt from 'jsonwebtoken';
 import { supabaseStorage, STORAGE_BUCKETS, StorageBucket } from '../storage/supabaseStorage';
 import { query } from '../db/pool';
-import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { authenticateToken, getJwtSecret, AuthRequest } from '../middleware/auth';
 
 const router = Router();
 
@@ -65,7 +66,7 @@ router.get('/status', authenticateToken, async (req: AuthRequest, res) => {
 
   res.json({
     success: true,
-    provider: isConfigured ? 'supabase' : 'local_resilient_store',
+    provider: isConfigured ? 'supabase' : 'unconfigured',
     isConfigured,
     supabaseProjectUrl: isConfigured ? supabaseUrl : null,
     buckets: Object.values(STORAGE_BUCKETS),
@@ -170,8 +171,8 @@ router.post('/upload/:bucket', authenticateToken, upload.single('file'), async (
       signedUrl
     });
   } catch (err: any) {
-    console.error('[Storage API] Upload failed:', err);
-    res.status(500).json({ success: false, error: err.message || 'File upload failed.' });
+    console.error('[Storage API] Upload failed:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'File upload failed.' });
   }
 });
 
@@ -212,14 +213,14 @@ router.get('/signed-url', authenticateToken, async (req: AuthRequest, res) => {
       expiresInSeconds: expiresIn
     });
   } catch (err: any) {
-    console.error('[Storage API] Signed URL generation failed:', err);
-    res.status(500).json({ success: false, error: err.message || 'Could not generate signed URL.' });
+    console.error('[Storage API] Signed URL generation failed:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Could not generate signed URL.' });
   }
 });
 
 /**
  * GET /api/storage/download
- * Downloads/streams the requested object. Supports token validation for fallback signed links.
+ * Downloads/streams the requested object. Enforces JWT Bearer auth or HMAC signed token.
  */
 router.get('/download', async (req, res) => {
   try {
@@ -232,12 +233,11 @@ router.get('/download', async (req, res) => {
     }
 
     const safePath = supabaseStorage.sanitizeStoragePath(rawPath);
+    const secret = getJwtSecret();
 
-    // If token provided (fallback mode signed url), verify HMAC token
     if (token) {
-      const secret = process.env.JWT_SECRET || 'fallback_secret';
       const window1 = Math.floor(Date.now() / 300000);
-      const window2 = window1 - 1; // allow grace period
+      const window2 = window1 - 1;
 
       const expectedToken1 = crypto
         .createHmac('sha256', secret)
@@ -255,10 +255,23 @@ router.get('/download', async (req, res) => {
         return res.status(403).json({ success: false, error: 'Invalid or expired download token.' });
       }
     } else {
-      // Must authenticate token from header
       const authHeader = req.headers.authorization;
-      if (!authHeader) {
+      const bearerToken = authHeader && authHeader.split(' ')[1];
+      if (!bearerToken) {
         return res.status(401).json({ success: false, error: 'Authorization required to download.' });
+      }
+      let decoded: any;
+      try {
+        decoded = jwt.verify(bearerToken, secret);
+      } catch {
+        return res.status(401).json({ success: false, error: 'Session expired or invalid authentication token.' });
+      }
+      const companyId = decoded?.companyId || 1;
+      if (!safePath.startsWith(`${companyId}/`)) {
+        return res.status(403).json({
+          success: false,
+          error: 'Access denied. You do not have permission to access files outside your company tenant.'
+        });
       }
     }
 
@@ -269,8 +282,8 @@ router.get('/download', async (req, res) => {
     res.setHeader('Content-Disposition', `inline; filename="${fileName}"`);
     res.send(buffer);
   } catch (err: any) {
-    console.error('[Storage API] Download failed:', err);
-    res.status(404).json({ success: false, error: err.message || 'File not found.' });
+    console.error('[Storage API] Download failed:', err?.message || err);
+    res.status(err?.statusCode || 404).json({ success: false, error: err.message || 'File not found.' });
   }
 });
 
@@ -317,8 +330,8 @@ router.delete('/delete', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, deleted, path: safePath });
   } catch (err: any) {
-    console.error('[Storage API] Delete failed:', err);
-    res.status(500).json({ success: false, error: err.message || 'File deletion failed.' });
+    console.error('[Storage API] Delete failed:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'File deletion failed.' });
   }
 });
 

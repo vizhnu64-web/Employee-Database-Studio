@@ -46,7 +46,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, employees });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -72,7 +72,7 @@ router.post('/', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, id: result.rows[0].id });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -112,7 +112,7 @@ router.put('/:id', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, message: 'Employee updated successfully.' });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -123,7 +123,7 @@ router.delete('/:id', authenticateToken, async (req: AuthRequest, res) => {
     await query('DELETE FROM directory_employees WHERE id = $1 AND company_id = $2', [id, companyId]);
     res.json({ success: true, message: 'Employee deleted successfully.' });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 

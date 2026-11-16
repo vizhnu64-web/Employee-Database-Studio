@@ -32,7 +32,7 @@ router.get('/export', authenticateToken, requireRole(['admin']), async (req: Aut
     res.setHeader('Content-Disposition', `attachment; filename=EmployeeDatabaseStudio_Backup_${new Date().toISOString().slice(0, 10)}.json`);
     res.send(JSON.stringify(backupPayload, null, 2));
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -88,7 +88,7 @@ router.post('/restore', authenticateToken, requireRole(['admin']), async (req: A
       message: `Successfully restored database: ${d.employees?.length || 0} employee records restored.`
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 

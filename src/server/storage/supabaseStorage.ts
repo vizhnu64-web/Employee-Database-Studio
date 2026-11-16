@@ -1,7 +1,5 @@
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import path from 'path';
-import fs from 'fs';
-import crypto from 'crypto';
 
 export const STORAGE_BUCKETS = {
   EMPLOYEE_DOCUMENTS: 'employee-documents',
@@ -12,20 +10,38 @@ export const STORAGE_BUCKETS = {
 
 export type StorageBucket = typeof STORAGE_BUCKETS[keyof typeof STORAGE_BUCKETS];
 
-const FALLBACK_DIR = path.resolve(process.cwd(), 'data', 'storage_fallback');
+export class StorageServiceError extends Error {
+  public readonly statusCode: number;
+  constructor(message: string, statusCode = 503) {
+    super(message);
+    this.name = 'StorageServiceError';
+    this.statusCode = statusCode;
+  }
+}
 
-class SupabaseStorageService {
+export class SupabaseStorageService {
   private client: SupabaseClient | null = null;
   private isClientInitialized = false;
+  private configuredUrl = '';
 
-  constructor() {
-    this.initClient();
+  constructor(customClient?: SupabaseClient | null, customUrl?: string) {
+    if (customClient !== undefined) {
+      this.client = customClient;
+      this.isClientInitialized = Boolean(customClient);
+      this.configuredUrl = customUrl || '';
+    } else {
+      this.initClient();
+    }
   }
 
-  private initClient() {
-    const supabaseUrl = process.env.SUPABASE_URL?.trim();
-    // Prefer service role key for administrative backend access; fallback to anon key if provided
-    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)?.trim();
+  /**
+   * Initializes Supabase Storage client purely in memory.
+   * Never performs filesystem writes during module import or initialization.
+   */
+  public initClient() {
+    const supabaseUrl = process.env.SUPABASE_URL?.trim() || '';
+    // Keep existing key architecture: prefer service-role key on backend, fallback to anon key if provided
+    const supabaseKey = (process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_ANON_KEY)?.trim() || '';
 
     if (supabaseUrl && supabaseKey && !supabaseUrl.includes('your-project')) {
       try {
@@ -35,21 +51,18 @@ class SupabaseStorageService {
             autoRefreshToken: false
           }
         });
+        this.configuredUrl = supabaseUrl;
         this.isClientInitialized = true;
-        console.log('[Supabase Storage] Initialized client for:', supabaseUrl);
       } catch (err: any) {
-        console.warn('[Supabase Storage] Failed to initialize client:', err.message);
+        console.warn('[Supabase Storage] Failed to initialize client:', err?.message || 'Unknown error');
         this.client = null;
+        this.configuredUrl = '';
         this.isClientInitialized = false;
       }
     } else {
       this.client = null;
+      this.configuredUrl = '';
       this.isClientInitialized = false;
-    }
-
-    // Ensure fallback directory exists
-    if (!fs.existsSync(FALLBACK_DIR)) {
-      fs.mkdirSync(FALLBACK_DIR, { recursive: true });
     }
   }
 
@@ -58,7 +71,17 @@ class SupabaseStorageService {
   }
 
   public getSupabaseUrl(): string {
-    return process.env.SUPABASE_URL || '';
+    return this.configuredUrl || process.env.SUPABASE_URL?.trim() || '';
+  }
+
+  private ensureClient(): SupabaseClient {
+    if (!this.isClientInitialized || !this.client) {
+      throw new StorageServiceError(
+        'Supabase Storage service is unavailable. Please configure SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY.',
+        503
+      );
+    }
+    return this.client;
   }
 
   /**
@@ -117,8 +140,7 @@ class SupabaseStorageService {
   }
 
   /**
-   * Uploads file buffer to Supabase Storage bucket.
-   * Keeps bucket private and preserves isolation.
+   * Uploads file buffer to private Supabase Storage bucket.
    */
   public async uploadObject(
     bucket: StorageBucket | string,
@@ -126,38 +148,24 @@ class SupabaseStorageService {
     buffer: Buffer,
     mimeType: string
   ): Promise<{ path: string; fullPath: string }> {
+    const client = this.ensureClient();
     const safePath = this.sanitizeStoragePath(storagePath);
 
-    if (this.isConfigured() && this.client) {
-      const { data, error } = await this.client.storage
-        .from(bucket)
-        .upload(safePath, buffer, {
-          contentType: mimeType,
-          upsert: true
-        });
+    const { data, error } = await client.storage
+      .from(bucket)
+      .upload(safePath, buffer, {
+        contentType: mimeType,
+        upsert: true
+      });
 
-      if (error) {
-        console.error(`[Supabase Storage] Upload error to bucket "${bucket}" at "${safePath}":`, error.message);
-        throw new Error(`Supabase Storage upload failed: ${error.message}`);
-      }
-
-      return {
-        path: safePath,
-        fullPath: data?.fullPath || `${bucket}/${safePath}`
-      };
+    if (error) {
+      console.error(`[Supabase Storage] Upload error to bucket "${bucket}" at "${safePath}":`, error.message);
+      throw new StorageServiceError(`Supabase Storage upload failed: ${error.message}`, 502);
     }
-
-    // Local resilient storage fallback
-    const targetFile = path.join(FALLBACK_DIR, bucket, safePath);
-    const targetDir = path.dirname(targetFile);
-    if (!fs.existsSync(targetDir)) {
-      fs.mkdirSync(targetDir, { recursive: true });
-    }
-    fs.writeFileSync(targetFile, buffer);
 
     return {
       path: safePath,
-      fullPath: `${bucket}/${safePath}`
+      fullPath: data?.fullPath || `${bucket}/${safePath}`
     };
   }
 
@@ -169,77 +177,42 @@ class SupabaseStorageService {
     storagePath: string,
     expiresInSeconds: number = 300
   ): Promise<string> {
+    const client = this.ensureClient();
     const safePath = this.sanitizeStoragePath(storagePath);
 
-    if (this.isConfigured() && this.client) {
-      const { data, error } = await this.client.storage
-        .from(bucket)
-        .createSignedUrl(safePath, expiresInSeconds);
+    const { data, error } = await client.storage
+      .from(bucket)
+      .createSignedUrl(safePath, expiresInSeconds);
 
-      if (error || !data?.signedUrl) {
-        throw new Error(`Failed to generate signed URL: ${error?.message || 'Unknown error'}`);
-      }
-
-      return data.signedUrl;
+    if (error || !data?.signedUrl) {
+      throw new StorageServiceError(`Failed to generate signed URL: ${error?.message || 'Unknown error'}`, 502);
     }
 
-    // Fallback: generates signed API URL pointing to the applet's secure tokenized download endpoint
-    const token = crypto
-      .createHmac('sha256', process.env.JWT_SECRET || 'fallback_secret')
-      .update(`${bucket}:${safePath}:${Math.floor(Date.now() / (expiresInSeconds * 1000))}`)
-      .digest('hex')
-      .substring(0, 16);
-
-    return `/api/storage/download?bucket=${encodeURIComponent(bucket)}&path=${encodeURIComponent(safePath)}&token=${token}`;
+    return data.signedUrl;
   }
 
   /**
-   * Downloads an object as a Buffer.
+   * Downloads an object as a Buffer from Supabase Storage.
    */
   public async downloadObject(
     bucket: StorageBucket | string,
     storagePath: string
   ): Promise<{ buffer: Buffer; mimeType: string }> {
+    const client = this.ensureClient();
     const safePath = this.sanitizeStoragePath(storagePath);
 
-    if (this.isConfigured() && this.client) {
-      const { data, error } = await this.client.storage
-        .from(bucket)
-        .download(safePath);
+    const { data, error } = await client.storage
+      .from(bucket)
+      .download(safePath);
 
-      if (error || !data) {
-        throw new Error(`Failed to download object from Supabase: ${error?.message || 'File not found'}`);
-      }
-
-      const arrayBuffer = await data.arrayBuffer();
-      return {
-        buffer: Buffer.from(arrayBuffer),
-        mimeType: data.type || 'application/octet-stream'
-      };
+    if (error || !data) {
+      throw new StorageServiceError(`Failed to download object from Supabase: ${error?.message || 'File not found'}`, 404);
     }
 
-    // Fallback
-    const targetFile = path.join(FALLBACK_DIR, bucket, safePath);
-    if (!fs.existsSync(targetFile)) {
-      throw new Error(`File does not exist in storage: ${safePath}`);
-    }
-
-    const buffer = fs.readFileSync(targetFile);
-    const ext = path.extname(targetFile).toLowerCase();
-    const mimeMap: Record<string, string> = {
-      '.pdf': 'application/pdf',
-      '.png': 'image/png',
-      '.jpg': 'image/jpeg',
-      '.jpeg': 'image/jpeg',
-      '.svg': 'image/svg+xml',
-      '.webp': 'image/webp',
-      '.xlsx': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-      '.csv': 'text/csv'
-    };
-
+    const arrayBuffer = await data.arrayBuffer();
     return {
-      buffer,
-      mimeType: mimeMap[ext] || 'application/octet-stream'
+      buffer: Buffer.from(arrayBuffer),
+      mimeType: data.type || 'application/octet-stream'
     };
   }
 
@@ -250,29 +223,16 @@ class SupabaseStorageService {
     bucket: StorageBucket | string,
     storagePath: string
   ): Promise<boolean> {
+    const client = this.ensureClient();
     const safePath = this.sanitizeStoragePath(storagePath);
 
-    if (this.isConfigured() && this.client) {
-      const { error } = await this.client.storage
-        .from(bucket)
-        .remove([safePath]);
+    const { error } = await client.storage
+      .from(bucket)
+      .remove([safePath]);
 
-      if (error) {
-        console.warn(`[Supabase Storage] Delete error in "${bucket}" for "${safePath}":`, error.message);
-        return false;
-      }
-      return true;
-    }
-
-    // Fallback
-    const targetFile = path.join(FALLBACK_DIR, bucket, safePath);
-    if (fs.existsSync(targetFile)) {
-      try {
-        fs.unlinkSync(targetFile);
-        return true;
-      } catch {
-        return false;
-      }
+    if (error) {
+      console.warn(`[Supabase Storage] Delete error in "${bucket}" for "${safePath}":`, error.message);
+      return false;
     }
     return true;
   }

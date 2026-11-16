@@ -1,14 +1,14 @@
 import { Router } from 'express';
 import { query, pool } from '../db/pool';
 import { authenticateToken, requireRole, AuthRequest } from '../middleware/auth';
-import fs from 'fs';
-import path from 'path';
+import { supabaseStorage } from '../storage/supabaseStorage';
 
 const router = Router();
 
 // GET /api/server/stats - Real cloud server & PostgreSQL health stats
 router.get('/stats', authenticateToken, async (req: AuthRequest, res) => {
   try {
+    const companyId = req.user?.companyId || 1;
     const startTime = Date.now();
     let dbStatus = 'healthy';
     let dbLatencyMs = 0;
@@ -24,17 +24,17 @@ router.get('/stats', authenticateToken, async (req: AuthRequest, res) => {
     }
 
     try {
-      const testQuery = await query('SELECT count(*) as count FROM companies');
+      await query('SELECT count(*) as count FROM companies');
       dbLatencyMs = Date.now() - startTime;
-    } catch (e: any) {
+    } catch {
       dbStatus = 'degraded';
     }
 
     try {
-      const empCount = await query('SELECT count(*) as count FROM directory_employees');
-      const userCount = await query('SELECT count(*) as count FROM users');
-      const attCount = await query('SELECT count(*) as count FROM attendance_records');
-      const auditCount = await query('SELECT count(*) as count FROM audit_logs');
+      const empCount = await query('SELECT count(*) as count FROM directory_employees WHERE company_id = $1', [companyId]);
+      const userCount = await query('SELECT count(*) as count FROM users WHERE company_id = $1', [companyId]);
+      const attCount = await query('SELECT count(*) as count FROM attendance_records WHERE company_id = $1', [companyId]);
+      const auditCount = await query('SELECT count(*) as count FROM audit_logs WHERE company_id = $1', [companyId]);
       tableCounts = {
         employees: Number(empCount.rows[0]?.count || 0),
         users: Number(userCount.rows[0]?.count || 0),
@@ -45,25 +45,18 @@ router.get('/stats', authenticateToken, async (req: AuthRequest, res) => {
       tableCounts = { employees: 0, users: 1, attendance: 0, auditLogs: 0 };
     }
 
-    // Storage check
-    const storageDir = process.env.UPLOADS_DIR || path.join(process.cwd(), 'server_storage');
-    let storageStatus = 'connected';
+    // Cloud Storage metadata check (via Supabase Storage & PostgreSQL storage_objects)
+    const isStorageConfigured = supabaseStorage.isConfigured();
+    let storageStatus = isStorageConfigured ? 'connected' : 'unconfigured';
     let storageFilesCount = 0;
     let storageSizeBytes = 0;
 
     try {
-      if (fs.existsSync(storageDir)) {
-        const files = fs.readdirSync(storageDir, { recursive: true });
-        storageFilesCount = files.length;
-        for (const file of files) {
-          try {
-            const stat = fs.statSync(path.join(storageDir, String(file)));
-            if (stat.isFile()) storageSizeBytes += stat.size;
-          } catch {}
-        }
-      }
+      const objRes = await query('SELECT file_size_bytes FROM storage_objects WHERE company_id = $1', [companyId]);
+      storageFilesCount = objRes.rows.length;
+      storageSizeBytes = objRes.rows.reduce((sum, r) => sum + (Number(r.file_size_bytes) || 0), 0);
     } catch {
-      storageStatus = 'degraded';
+      if (!isStorageConfigured) storageStatus = 'unconfigured';
     }
 
     // Active sessions
@@ -75,7 +68,7 @@ router.get('/stats', authenticateToken, async (req: AuthRequest, res) => {
       activeSessionsCount = 1;
     }
 
-    // Recent audit logs / errors
+    // Recent audit logs
     let recentLogs: any[] = [];
     try {
       const logsRes = await query('SELECT * FROM audit_logs ORDER BY timestamp DESC LIMIT 10');
@@ -94,7 +87,7 @@ router.get('/stats', authenticateToken, async (req: AuthRequest, res) => {
       },
       database: {
         status: dbStatus,
-        engine: isPgConnected ? 'Hosted PostgreSQL (Direct Pool)' : 'Resilient High-Performance Store (Cloud Ready)',
+        engine: isPgConnected ? 'Hosted PostgreSQL (Direct Pool)' : 'Local Development Store',
         isPgConnected,
         latencyMs: dbLatencyMs,
         lastSuccessfulConnection: new Date().toISOString(),
@@ -102,10 +95,10 @@ router.get('/stats', authenticateToken, async (req: AuthRequest, res) => {
       },
       storage: {
         status: storageStatus,
-        provider: 'Persistent Cloud Object Storage',
+        provider: isStorageConfigured ? 'Supabase Private Object Storage' : 'Unconfigured',
         fileCount: storageFilesCount,
         totalSizeBytes: storageSizeBytes,
-        storagePath: 'server_storage/'
+        storagePath: 'supabase://private-buckets'
       },
       sessions: {
         activeCount: activeSessionsCount
@@ -113,7 +106,7 @@ router.get('/stats', authenticateToken, async (req: AuthRequest, res) => {
       recentLogs
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -149,7 +142,7 @@ router.get('/sessions', authenticateToken, requireRole(['admin']), async (req: A
 
     res.json({ success: true, sessions });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -160,7 +153,7 @@ router.post('/sessions/:id/revoke', authenticateToken, requireRole(['admin']), a
     await query('UPDATE login_sessions SET is_revoked = true WHERE id = $1', [id]);
     res.json({ success: true, message: `Session #${id} successfully revoked.` });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -186,7 +179,7 @@ router.get('/workspace', authenticateToken, async (req: AuthRequest, res) => {
       }
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 

@@ -2,9 +2,10 @@ import express from 'express';
 import cors from 'cors';
 import path from 'path';
 import dotenv from 'dotenv';
-import { fileURLToPath } from 'url';
 import rateLimit from 'express-rate-limit';
-import { initializeDatabase } from './src/server/db/initSchema';
+import { ensureDatabaseInitialized } from './src/server/db/initSchema';
+import { getDatabaseDiagnostics, pool } from './src/server/db/pool';
+import { supabaseStorage } from './src/server/storage/supabaseStorage';
 import authRoutes from './src/server/routes/auth';
 import settingsRoutes from './src/server/routes/settings';
 import employeeRoutes from './src/server/routes/employees';
@@ -18,9 +19,6 @@ import payrollRoutes from './src/server/routes/payroll';
 import storageRoutes from './src/server/routes/storage';
 
 dotenv.config();
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -46,6 +44,70 @@ const apiLimiter = rateLimit({
 });
 app.use('/api/', apiLimiter);
 
+// Health check endpoint (always accessible without crashing, never leaks secrets)
+app.get('/api/health', async (req, res) => {
+  const dbDiag = getDatabaseDiagnostics();
+  let dbReachable = false;
+  let dbError: string | null = null;
+
+  if (dbDiag.configured) {
+    try {
+      const client = await pool.connect();
+      await client.query('SELECT 1');
+      client.release();
+      dbReachable = true;
+    } catch (err: any) {
+      dbError = err?.message || 'PostgreSQL connection check failed';
+    }
+  }
+
+  const storageConfigured = supabaseStorage.isConfigured();
+  const authConfigured = Boolean(process.env.JWT_SECRET?.trim()) || !dbDiag.productionMode;
+  const healthy = (!dbDiag.productionMode || (dbDiag.configured && dbReachable && authConfigured));
+
+  res.status(200).json({
+    status: healthy ? 'healthy' : 'degraded',
+    app: 'Employee Database Studio Enterprise Cloud',
+    version: '1.0.0',
+    mode: process.env.NODE_ENV || 'development',
+    serverless: process.env.VERCEL === '1',
+    checks: {
+      database: {
+        configured: dbDiag.configured,
+        sourceVar: dbDiag.sourceVar,
+        reachable: dbReachable,
+        sslEnabled: dbDiag.sslEnabled,
+        error: dbError,
+      },
+      storage: {
+        provider: storageConfigured ? 'supabase' : 'unconfigured',
+        configured: storageConfigured,
+      },
+      auth: {
+        jwtConfigured: Boolean(process.env.JWT_SECRET?.trim()),
+      },
+    },
+    timestamp: new Date().toISOString()
+  });
+});
+
+// Ensure database schema/bootstrap runs safely once per cold start before handling operational API routes
+app.use('/api', async (req, res, next) => {
+  if (req.path === '/health') {
+    return next();
+  }
+  try {
+    await ensureDatabaseInitialized();
+    next();
+  } catch (err: any) {
+    console.error('[Employee Database Studio Cold-Start Init Error]:', err?.message || err);
+    res.status(err?.statusCode || 503).json({
+      success: false,
+      error: err?.message || 'Database service unavailable.'
+    });
+  }
+});
+
 // Central API Routes
 app.use('/api/auth', authRoutes);
 app.use('/api/settings', settingsRoutes);
@@ -59,25 +121,34 @@ app.use('/api/server', serverStatsRoutes);
 app.use('/api/payroll', payrollRoutes);
 app.use('/api/storage', storageRoutes);
 
-// Health check endpoint
-app.get('/api/health', (req, res) => {
-  res.json({
-    status: 'healthy',
-    app: 'Employee Database Studio Enterprise Cloud',
-    version: '1.0.0',
-    mode: process.env.NODE_ENV || 'development',
-    timestamp: new Date().toISOString()
-  });
+// Controlled JSON error handler (catches multer file limits, malformed JSON, config 503s cleanly)
+app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
+  const status =
+    err?.statusCode ||
+    (err?.type === 'entity.parse.failed' ? 400 : err?.code === 'LIMIT_FILE_SIZE' ? 413 : 500);
+  const message = err?.message || 'Internal server error.';
+  console.error(`[Employee Database Studio API Error] ${req.method} ${req.path}:`, message);
+  if (!res.headersSent) {
+    res.status(status).json({ success: false, error: message });
+  }
 });
 
 function checkDeploymentEnvironment() {
-  const requiredVars = ['DATABASE_URL', 'JWT_SECRET', 'INITIAL_ADMIN_PASSWORD'];
-  const missing = requiredVars.filter(v => !process.env[v]);
-  if (missing.length > 0) {
-    console.warn(`[Employee Database Studio Security] Warning: The following required environment variables are not set: ${missing.join(', ')}.`);
+  const missing: string[] = [];
+  if (!process.env.DATABASE_URL?.trim() && !process.env.POSTGRES_URL?.trim()) {
+    missing.push('DATABASE_URL (or POSTGRES_URL)');
+  }
+  if (!process.env.JWT_SECRET?.trim()) {
+    missing.push('JWT_SECRET');
+  }
+  if (!process.env.SUPABASE_URL?.trim() || !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
+    missing.push('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
   }
 
-  // SMTP is optional during initial deployment. No fake or hardcoded fallback credentials.
+  if (missing.length > 0) {
+    console.warn(`[Employee Database Studio Config] Missing optional/production environment variables: ${missing.join(', ')}.`);
+  }
+
   const hasSmtp = Boolean(process.env.SMTP_HOST && (process.env.SMTP_SENDER_EMAIL || process.env.SMTP_USER));
   if (!hasSmtp) {
     console.log('[Employee Database Studio Email] Initial deployment: SMTP environment variables are not configured. Email service is unconfigured until an authorized administrator configures SMTP in Company Settings.');
@@ -88,7 +159,7 @@ function checkDeploymentEnvironment() {
 
 async function startServer() {
   checkDeploymentEnvironment();
-  await initializeDatabase();
+  await ensureDatabaseInitialized();
 
   if (process.env.NODE_ENV !== 'production') {
     const { createServer: createViteServer } = await import('vite');
@@ -98,9 +169,10 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static(path.resolve(__dirname, 'dist')));
+    const distDir = path.resolve(process.cwd(), 'dist');
+    app.use(express.static(distDir));
     app.get('*', (req, res) => {
-      res.sendFile(path.resolve(__dirname, 'dist', 'index.html'));
+      res.sendFile(path.resolve(distDir, 'index.html'));
     });
   }
 
@@ -109,12 +181,17 @@ async function startServer() {
   });
 }
 
-// Only start the standalone server process if run directly
-if (process.env.VERCEL !== '1') {
+// Only start the standalone HTTP server when executed directly via `tsx server.ts` / `node server.js`
+const isDirectExecution =
+  process.env.VERCEL !== '1' &&
+  process.env.NODE_ENV !== 'test' &&
+  Boolean(process.argv[1] && /(?:^|[\\/])server\.(?:ts|js|mjs|cjs)$/.test(process.argv[1]));
+
+if (isDirectExecution) {
   startServer().catch(err => {
-    console.error('[Employee Database Studio] Server failed to start:', err);
+    console.error('[Employee Database Studio] Server failed to start:', err?.message || err);
   });
 }
 
-export { app };
+export { app, ensureDatabaseInitialized };
 export default app;

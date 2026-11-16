@@ -116,7 +116,7 @@ router.get('/settings', authenticateToken, async (req: AuthRequest, res) => {
       }
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -199,7 +199,7 @@ router.put('/settings', authenticateToken, requireRole(['admin', 'super_admin'])
       isVerified
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -267,14 +267,18 @@ router.post('/verify', authenticateToken, requireRole(['admin', 'super_admin']),
     const companyId = req.user?.companyId || 1;
     const cleanError = err.message || 'Failed to connect to SMTP server. Please check your credentials and host settings.';
 
-    await query(`
-      UPDATE company_smtp_settings
-      SET is_verified = FALSE, last_error = $1
-      WHERE company_id = $2
-    `, [cleanError, companyId]);
+    if (err?.statusCode !== 503) {
+      try {
+        await query(`
+          UPDATE company_smtp_settings
+          SET is_verified = FALSE, last_error = $1
+          WHERE company_id = $2
+        `, [cleanError, companyId]);
+      } catch {}
+    }
 
     console.warn('[Email Route] SMTP Verification failed:', cleanError);
-    res.status(400).json({
+    res.status(err?.statusCode || 400).json({
       success: false,
       error: cleanError
     });
@@ -385,7 +389,7 @@ router.post('/send', authenticateToken, emailSendLimiter, async (req: AuthReques
     });
   } catch (err: any) {
     console.error('[Email Route] Failed to send email:', err.message);
-    res.status(500).json({
+    res.status(err?.statusCode || 500).json({
       success: false,
       error: err.message || 'Failed to dispatch email via SMTP server.'
     });

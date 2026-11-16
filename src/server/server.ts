@@ -3,7 +3,7 @@ import cors from 'cors';
 import path from 'path';
 import dotenv from 'dotenv';
 import cron from 'node-cron';
-import { initializeDatabase } from './db/initSchema';
+import { ensureDatabaseInitialized } from './db/initSchema';
 import authRoutes from './routes/auth';
 import settingsRoutes from './routes/settings';
 import employeeRoutes from './routes/employees';
@@ -66,10 +66,16 @@ cron.schedule('0 20 * * *', () => {
 });
 
 function checkDeploymentEnvironment() {
-  const requiredVars = ['DATABASE_URL', 'JWT_SECRET', 'INITIAL_ADMIN_PASSWORD'];
-  const missing = requiredVars.filter(v => !process.env[v]);
+  const missing: string[] = [];
+  if (!process.env.DATABASE_URL?.trim() && !process.env.POSTGRES_URL?.trim()) {
+    missing.push('DATABASE_URL (or POSTGRES_URL)');
+  }
+  if (!process.env.JWT_SECRET?.trim()) {
+    missing.push('JWT_SECRET');
+  }
+
   if (missing.length > 0) {
-    console.warn(`[Employee Database Studio Security] Warning: The following required environment variables are not set: ${missing.join(', ')}.`);
+    console.warn(`[Employee Database Studio Security] Warning: The following environment variables are not set: ${missing.join(', ')}.`);
   }
 
   // SMTP is optional during initial deployment.
@@ -83,7 +89,7 @@ function checkDeploymentEnvironment() {
 
 async function startServer() {
   checkDeploymentEnvironment();
-  await initializeDatabase();
+  await ensureDatabaseInitialized();
 
   app.listen(Number(PORT), '0.0.0.0', () => {
     console.log(`[Employee Database Studio Server] Enterprise backend running successfully on port ${PORT}`);

@@ -21,7 +21,7 @@ router.get('/structure/:employeeId', authenticateToken, async (req: AuthRequest,
 
     res.json({ success: true, structure: result.rows[0] });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -128,7 +128,7 @@ router.post('/structure/:employeeId', authenticateToken, requireRole(['admin', '
       message: 'Salary structure updated and revision logged successfully.'
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -145,7 +145,7 @@ router.get('/revisions/:employeeId', authenticateToken, async (req: AuthRequest,
 
     res.json({ success: true, revisions: revisions.rows });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -162,7 +162,7 @@ router.get('/payslip-revisions/:payslipId', authenticateToken, async (req: AuthR
 
     res.json({ success: true, revisions: revisions.rows });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -226,7 +226,7 @@ router.post('/payslip-revisions', authenticateToken, requireRole(['admin', 'hr',
       message: `Payslip revision v${versionNumber} saved successfully.`
     });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -317,8 +317,8 @@ router.post('/save-payslip-pdf', authenticateToken, async (req: AuthRequest, res
       fileSize: pdfBuffer.length
     });
   } catch (err: any) {
-    console.error('[Save Payslip PDF Error]:', err);
-    res.status(500).json({ success: false, error: err.message || 'Failed to save payslip PDF.' });
+    console.error('[Save Payslip PDF Error]:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Failed to save payslip PDF.' });
   }
 });
 
@@ -360,8 +360,8 @@ router.get('/payslip-pdf/:historyId', authenticateToken, async (req: AuthRequest
       expiresInSeconds: 300
     });
   } catch (err: any) {
-    console.error('[Get Payslip PDF Error]:', err);
-    res.status(500).json({ success: false, error: err.message || 'Failed to retrieve payslip PDF.' });
+    console.error('[Get Payslip PDF Error]:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Failed to retrieve payslip PDF.' });
   }
 });
 
@@ -381,7 +381,7 @@ router.get('/history', authenticateToken, async (req: AuthRequest, res) => {
     const result = await query(text, params);
     res.json({ success: true, history: result.rows });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 

@@ -47,7 +47,7 @@ router.get('/', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, settings });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -79,7 +79,7 @@ router.put('/', authenticateToken, async (req: AuthRequest, res) => {
 
     res.json({ success: true, message: 'Settings updated successfully.', settings: s });
   } catch (err: any) {
-    res.status(500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
   }
 });
 
@@ -162,8 +162,8 @@ router.post('/logo', authenticateToken, logoUpload.single('logo'), async (req: A
       fileName: file.originalname
     });
   } catch (err: any) {
-    console.error('[Logo Upload Error]:', err);
-    res.status(500).json({ success: false, error: err.message || 'Failed to upload logo.' });
+    console.error('[Logo Upload Error]:', err?.message || err);
+    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Failed to upload logo.' });
   }
 });
 
