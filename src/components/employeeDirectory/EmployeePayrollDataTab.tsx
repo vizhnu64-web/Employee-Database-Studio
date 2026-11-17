@@ -64,6 +64,7 @@ export const EmployeePayrollDataTab: React.FC<EmployeePayrollDataTabProps> = ({
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [revisionReason, setRevisionReason] = useState<string>('Annual compensation adjustment');
   const [showRevisionModal, setShowRevisionModal] = useState(false);
 
@@ -200,8 +201,10 @@ export const EmployeePayrollDataTab: React.FC<EmployeePayrollDataTabProps> = ({
       // Reload revisions
       const revRes = await apiClient.request(`/payroll/revisions/${employee.employeeId}`).catch(() => null);
       if (revRes?.revisions) setRevisions(revRes.revisions);
+      setErrorMessage(null);
     } catch (err: any) {
-      alert(`Failed to save salary structure: ${err.message || 'Error occurred'}`);
+      setErrorMessage(`Failed to save salary structure: ${err.message || 'Error occurred'}`);
+      setShowRevisionModal(false);
     } finally {
       setIsSaving(false);
     }
@@ -250,6 +253,20 @@ export const EmployeePayrollDataTab: React.FC<EmployeePayrollDataTabProps> = ({
         }`}>
           <CheckCircle2 className="w-4 h-4 text-emerald-500 shrink-0" />
           <span>{toast}</span>
+        </div>
+      )}
+
+      {errorMessage && (
+        <div className={`p-3 rounded-xl flex items-center justify-between gap-2 text-xs border ${
+          isDark ? 'bg-[#2E0B0D] border-[#57151A] text-[#FCA5A5]' : 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
+        }`}>
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-[#ED1F24] shrink-0" />
+            <span>{errorMessage}</span>
+          </div>
+          <button type="button" onClick={() => setErrorMessage(null)} className="underline text-[11px] font-semibold cursor-pointer">
+            Dismiss
+          </button>
         </div>
       )}
 

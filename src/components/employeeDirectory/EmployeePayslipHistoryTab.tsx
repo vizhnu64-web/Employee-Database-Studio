@@ -27,6 +27,7 @@ export const EmployeePayslipHistoryTab: React.FC<EmployeePayslipHistoryTabProps>
   const { isDark } = useTheme();
   const [history, setHistory] = useState<GeneratedPayslipRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [errorNotice, setErrorNotice] = useState<string | null>(null);
 
   useEffect(() => {
     async function loadPayslips() {
@@ -48,17 +49,31 @@ export const EmployeePayslipHistoryTab: React.FC<EmployeePayslipHistoryTabProps>
 
   const handleDownloadPdf = (rec: GeneratedPayslipRecord) => {
     if (rec.pdfDataUri) {
+      setErrorNotice(null);
       const link = document.createElement('a');
       link.href = rec.pdfDataUri;
       link.download = `Payslip_${rec.employeeId}_${rec.month}_${rec.year}.pdf`;
       link.click();
     } else {
-      alert('PDF data URI not available for this record.');
+      setErrorNotice('PDF data URI not available for this record.');
     }
   };
 
   return (
     <div className="space-y-6 text-xs">
+      {errorNotice && (
+        <div className={`p-3 rounded-xl border flex items-center justify-between gap-2 ${
+          isDark ? 'bg-[#2E0B0D] border-[#57151A] text-[#FCA5A5]' : 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
+        }`}>
+          <div className="flex items-center space-x-2">
+            <AlertCircle className="w-4 h-4 shrink-0" />
+            <span>{errorNotice}</span>
+          </div>
+          <button type="button" onClick={() => setErrorNotice(null)} className="underline text-[11px] font-semibold cursor-pointer">
+            Dismiss
+          </button>
+        </div>
+      )}
       {/* Header Summary */}
       <div className={`p-5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 ${
         isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'

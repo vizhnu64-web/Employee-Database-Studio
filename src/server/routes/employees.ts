@@ -1,129 +1,289 @@
-import { Router } from 'express';
-import { query } from '../db/pool';
-import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { Router, Response } from 'express';
+import { requireGoogleAccessToken, GoogleAuthRequest } from '../middleware/googleAuth';
+import {
+  getWorksheetRows,
+  upsertWorksheetRowVersioned,
+  deleteWorksheetRowByKey,
+  recordSyncLog,
+} from '../services/googleSheets';
 
 const router = Router();
+router.use(requireGoogleAccessToken);
 
-router.get('/', authenticateToken, async (req: AuthRequest, res) => {
+function requireSpreadsheetId(req: GoogleAuthRequest): string {
+  const sid = String(
+    req.spreadsheetId || req.body?.spreadsheetId || req.query?.spreadsheetId || ''
+  ).trim();
+  if (!sid) {
+    const err: any = new Error(
+      'No Google Spreadsheet is linked. Open Company Settings -> Google Workspace Setup to initialize or link a spreadsheet.'
+    );
+    err.statusCode = 400;
+    throw err;
+  }
+  return sid;
+}
+
+function safeJsonParse(raw: any, fallback: any = {}) {
+  if (!raw || typeof raw !== 'string') return fallback;
   try {
-    const companyId = req.user?.companyId || 1;
-    const result = await query('SELECT * FROM directory_employees WHERE company_id = $1 ORDER BY employee_id ASC', [companyId]);
-    
-    const employees = result.rows.map(row => ({
-      id: String(row.id),
-      employeeId: row.employee_id,
-      name: row.name,
-      email: row.email,
-      department: row.department,
-      designation: row.designation,
-      joiningDate: row.joining_date,
-      employmentStatus: row.employment_status,
-      confirmationDate: row.confirmation_date,
-      resignationDate: row.resignation_date,
-      resignationReason: row.resignation_reason,
-      bankAccount: row.bank_account,
-      pan: row.pan,
-      uan: row.uan,
-      esiNumber: row.esi_number,
-      basic: Number(row.basic) || 0,
-      hra: Number(row.hra) || 0,
-      conveyance: Number(row.conveyance) || 0,
-      medicalAllowance: Number(row.medical_allowance) || 0,
-      specialAllowance: Number(row.special_allowance) || 0,
-      otherAllowances: Number(row.other_allowances) || 0,
-      pf: Number(row.pf) || 0,
-      esi: Number(row.esi) || 0,
-      professionalTax: Number(row.professional_tax) || 0,
-      tds: Number(row.tds) || 0,
-      otherDeductions: Number(row.other_deductions) || 0,
-      calculatedGross: Number(row.basic) + Number(row.hra) + Number(row.special_allowance) + Number(row.other_allowances),
-      calculatedDeductions: Number(row.pf) + Number(row.esi) + Number(row.professional_tax) + Number(row.tds) + Number(row.other_deductions),
-      calculatedNet: (Number(row.basic) + Number(row.hra) + Number(row.special_allowance) + Number(row.other_allowances)) - (Number(row.pf) + Number(row.esi) + Number(row.professional_tax) + Number(row.tds) + Number(row.other_deductions)),
-      version: row.version,
-      isValid: true,
-      issues: []
-    }));
+    return JSON.parse(raw);
+  } catch {
+    return fallback;
+  }
+}
+
+// GET /api/employees - Read Employee Directory joined with Salary Structures from Google Sheets
+router.get('/', async (req: GoogleAuthRequest, res: Response) => {
+  try {
+    const token = req.googleAccessToken!;
+    const sid = requireSpreadsheetId(req);
+
+    const [empRows, salRows] = await Promise.all([
+      getWorksheetRows(token, sid, 'Employees'),
+      getWorksheetRows(token, sid, 'Salary Structures'),
+    ]);
+
+    const salaryMap = new Map<string, any[]>();
+    for (const row of salRows.slice(1)) {
+      const empId = String(row[0] || '').trim().toUpperCase();
+      if (empId) salaryMap.set(empId, row);
+    }
+
+    const employees = empRows.slice(1).map((row) => {
+      const empId = String(row[0] || '').trim();
+      const bankMeta = safeJsonParse(row[8], {});
+      const payrollMeta = safeJsonParse(row[9], {});
+      const sal = salaryMap.get(empId.toUpperCase()) || [];
+
+      const basic = Number(sal[1] || 0);
+      const hra = Number(sal[2] || 0);
+      const allowances = Number(sal[3] || 0);
+      const ctc = Number(sal[4] || 0);
+      const employerPf = Number(sal[5] || 0);
+      const employerEsi = Number(sal[6] || 0);
+      const employeePf = Number(sal[7] || 0);
+      const employeeEsi = Number(sal[8] || 0);
+      const professionalTax = Number(sal[9] || 0);
+
+      const calculatedGross = ctc > 0 ? ctc - employerPf - employerEsi : basic + hra + allowances;
+      const calculatedDeductions = employeePf + employeeEsi + professionalTax;
+      const calculatedNet = calculatedGross - calculatedDeductions;
+
+      return {
+        id: empId,
+        employeeId: empId,
+        name: String(row[1] || ''),
+        legalName: String(row[1] || ''),
+        email: String(row[2] || ''),
+        workEmail: String(row[2] || ''),
+        phone: String(row[3] || ''),
+        primaryPhone: String(row[3] || ''),
+        designation: String(row[4] || ''),
+        department: String(row[5] || ''),
+        joiningDate: String(row[6] || ''),
+        employmentStatus: String(row[7] || 'Active'),
+        bankAccount: String(bankMeta.bankAccount || ''),
+        accountNumber: String(bankMeta.bankAccount || ''),
+        bankName: String(bankMeta.bankName || ''),
+        ifscCode: String(bankMeta.ifsc || ''),
+        pan: String(payrollMeta.pan || ''),
+        panNumber: String(payrollMeta.pan || ''),
+        uan: String(payrollMeta.uan || ''),
+        uanNumber: String(payrollMeta.uan || ''),
+        esiNumber: String(payrollMeta.esi || ''),
+        documentFolderId: String(row[10] || ''),
+        createdAt: String(row[11] || ''),
+        updatedAt: String(row[12] || ''),
+        version: Number(row[13] || 1),
+        basic,
+        hra,
+        specialAllowance: allowances,
+        otherAllowances: 0,
+        ctc,
+        employerPf,
+        employerEsi,
+        employeePf,
+        pf: employeePf,
+        employeeEsi,
+        esi: employeeEsi,
+        professionalTax,
+        tds: 0,
+        otherDeductions: 0,
+        calculatedGross,
+        calculatedDeductions,
+        calculatedNet,
+        isValid: true,
+        issues: [],
+      };
+    });
 
     res.json({ success: true, employees });
   } catch (err: any) {
-    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err?.message });
   }
 });
 
-router.post('/', authenticateToken, async (req: AuthRequest, res) => {
+// POST /api/employees - Upsert Employee + Salary Structure into Google Sheets
+router.post('/', async (req: GoogleAuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId || 1;
-    const e = req.body;
-
-    const result = await query(`
-      INSERT INTO directory_employees (
-        company_id, employee_id, name, email, department, designation, joining_date,
-        employment_status, confirmation_date, resignation_date, resignation_reason,
-        bank_account, pan, uan, esi_number, basic, hra, conveyance, medical_allowance,
-        special_allowance, other_allowances, pf, esi, professional_tax, tds, other_deductions
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18, $19, $20, $21, $22, $23, $24, $25, $26)
-      RETURNING id
-    `, [
-      companyId, e.employeeId, e.name, e.email, e.department, e.designation, e.joiningDate,
-      e.employmentStatus || 'Active', e.confirmationDate, e.resignationDate, e.resignationReason,
-      e.bankAccount, e.pan, e.uan, e.esiNumber, e.basic || 0, e.hra || 0, e.conveyance || 0, e.medicalAllowance || 0,
-      e.specialAllowance || 0, e.otherAllowances || 0, e.pf || 0, e.esi || 0, e.professionalTax || 0, e.tds || 0, e.otherDeductions || 0
-    ]);
-
-    res.json({ success: true, id: result.rows[0].id });
-  } catch (err: any) {
-    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
-  }
-});
-
-router.put('/:id', authenticateToken, async (req: AuthRequest, res) => {
-  try {
-    const companyId = req.user?.companyId || 1;
-    const { id } = req.params;
-    const e = req.body;
-
-    // Check version for conflict detection
-    const curr = await query('SELECT version FROM directory_employees WHERE id = $1 AND company_id = $2', [id, companyId]);
-    if (curr.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Employee record not found.' });
+    const token = req.googleAccessToken!;
+    const sid = requireSpreadsheetId(req);
+    const e = req.body || {};
+    const empId = String(e.employeeId || '').trim();
+    if (!empId) {
+      return res.status(400).json({ success: false, error: 'Employee ID is required.' });
     }
 
-    if (e.version && curr.rows[0].version !== e.version) {
-      return res.status(409).json({ success: false, error: 'Conflict detected: Record was modified by another user. Please refresh.' });
+    const now = new Date().toISOString();
+    const empResult = await upsertWorksheetRowVersioned(
+      token,
+      sid,
+      'Employees',
+      empId,
+      [
+        empId,
+        e.legalName || e.name || '',
+        e.workEmail || e.email || '',
+        e.primaryPhone || e.phone || '',
+        e.designation || '',
+        e.department || '',
+        e.joiningDate || '',
+        e.employmentStatus || 'Active',
+        JSON.stringify({
+          bankAccount: e.accountNumber || e.bankAccount || '',
+          bankName: e.bankName || '',
+          ifsc: e.ifscCode || '',
+        }),
+        JSON.stringify({
+          pan: e.panNumber || e.pan || '',
+          uan: e.uanNumber || e.uan || '',
+          esi: e.esiNumber || '',
+        }),
+        e.documentFolderId || '',
+        e.createdAt || now,
+        now,
+        1,
+      ],
+      e.version !== undefined ? Number(e.version) : undefined,
+      0
+    );
+
+    if (empResult.action === 'conflict') {
+      return res.status(409).json({
+        success: false,
+        conflict: true,
+        error: 'Conflict detected: Employee record was updated in Google Sheets. Please refresh.',
+      });
     }
 
-    await query(`
-      UPDATE directory_employees SET
-        employee_id = $1, name = $2, email = $3, department = $4, designation = $5,
-        joining_date = $6, employment_status = $7, confirmation_date = $8, resignation_date = $9,
-        resignation_reason = $10, bank_account = $11, pan = $12, uan = $13, esi_number = $14,
-        basic = $15, hra = $16, special_allowance = $17, other_allowances = $18,
-        pf = $19, esi = $20, professional_tax = $21, tds = $22, other_deductions = $23,
-        version = version + 1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $24 AND company_id = $25
-    `, [
-      e.employeeId, e.name, e.email, e.department, e.designation,
-      e.joiningDate, e.employmentStatus, e.confirmationDate, e.resignationDate,
-      e.resignationReason, e.bankAccount, e.pan, e.uan, e.esiNumber,
-      e.basic, e.hra, e.specialAllowance, e.otherAllowances,
-      e.pf, e.esi, e.professionalTax, e.tds, e.otherDeductions,
-      id, companyId
-    ]);
+    await upsertWorksheetRowVersioned(
+      token,
+      sid,
+      'Salary Structures',
+      empId,
+      [
+        empId,
+        Number(e.basic ?? e.standardBasic ?? 0),
+        Number(e.hra ?? e.standardHra ?? 0),
+        Number((e.specialAllowance || 0) + (e.otherAllowances || e.standardAllowances || 0)),
+        Number(e.ctc ?? e.standardCtc ?? 0),
+        Number(e.employerPf ?? 0),
+        Number(e.employerEsi ?? e.standardEmployerEsi ?? 0),
+        Number(e.employeePf ?? e.pf ?? 0),
+        Number(e.employeeEsi ?? e.esi ?? 0),
+        Number(e.professionalTax ?? 0),
+        e.effectiveFrom || e.joiningDate || now.slice(0, 10),
+        e.effectiveTo || '',
+        now,
+        1,
+      ],
+      undefined,
+      0
+    );
 
-    res.json({ success: true, message: 'Employee updated successfully.' });
+    await recordSyncLog(token, sid, {
+      worksheetName: 'Employees',
+      recordKey: empId,
+      action: empResult.action === 'inserted' ? 'INSERT' : 'UPDATE',
+      status: 'Synced',
+      versionAfter: empResult.version,
+      details: `${empResult.action} employee "${e.name || empId}"`,
+    });
+
+    res.json({ success: true, id: empId, version: empResult.version });
   } catch (err: any) {
-    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err?.message });
   }
 });
 
-router.delete('/:id', authenticateToken, async (req: AuthRequest, res) => {
+// PUT /api/employees/:id - Versioned update of Employee in Google Sheets
+router.put('/:id', async (req: GoogleAuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId || 1;
-    const { id } = req.params;
-    await query('DELETE FROM directory_employees WHERE id = $1 AND company_id = $2', [id, companyId]);
-    res.json({ success: true, message: 'Employee deleted successfully.' });
+    const token = req.googleAccessToken!;
+    const sid = requireSpreadsheetId(req);
+    const empId = String(req.params.id || req.body?.employeeId || '').trim();
+    const e = req.body || {};
+    const now = new Date().toISOString();
+
+    const empResult = await upsertWorksheetRowVersioned(
+      token,
+      sid,
+      'Employees',
+      empId,
+      [
+        e.employeeId || empId,
+        e.legalName || e.name || '',
+        e.workEmail || e.email || '',
+        e.primaryPhone || e.phone || '',
+        e.designation || '',
+        e.department || '',
+        e.joiningDate || '',
+        e.employmentStatus || 'Active',
+        JSON.stringify({
+          bankAccount: e.accountNumber || e.bankAccount || '',
+          bankName: e.bankName || '',
+          ifsc: e.ifscCode || '',
+        }),
+        JSON.stringify({
+          pan: e.panNumber || e.pan || '',
+          uan: e.uanNumber || e.uan || '',
+          esi: e.esiNumber || '',
+        }),
+        e.documentFolderId || '',
+        e.createdAt || now,
+        now,
+        Number(e.version || 1),
+      ],
+      e.version !== undefined ? Number(e.version) : undefined,
+      0
+    );
+
+    if (empResult.action === 'conflict') {
+      return res.status(409).json({
+        success: false,
+        conflict: true,
+        error: 'Conflict detected: Record was modified in Google Sheets. Please refresh.',
+      });
+    }
+
+    res.json({ success: true, message: 'Employee updated in Google Sheets.', version: empResult.version });
   } catch (err: any) {
-    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err?.message });
+  }
+});
+
+// DELETE /api/employees/:id
+router.delete('/:id', async (req: GoogleAuthRequest, res: Response) => {
+  try {
+    const token = req.googleAccessToken!;
+    const sid = requireSpreadsheetId(req);
+    const { id } = req.params;
+    await deleteWorksheetRowByKey(token, sid, 'Employees', id, 0);
+    await deleteWorksheetRowByKey(token, sid, 'Salary Structures', id, 0).catch(() => false);
+    res.json({ success: true, message: 'Employee deleted from Google Sheets.' });
+  } catch (err: any) {
+    res.status(err?.statusCode || 500).json({ success: false, error: err?.message });
   }
 });
 

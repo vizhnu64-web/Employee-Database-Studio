@@ -39,42 +39,21 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ docu
           createdUrl = URL.createObjectURL(blob);
           if (active) setBlobUrl(createdUrl);
         } else if (document.id || document.storagePath) {
-          // Fetch short-lived signed URL or direct download stream from backend
-          const token = apiClient.getToken();
-          const previewEndpoint = document.id ? `/api/documents/preview/${document.id}` : null;
-          
-          let signedUrl: string | null = null;
-          if (previewEndpoint) {
-            const res = await fetch(previewEndpoint, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {}
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.signedUrl) {
-                signedUrl = data.signedUrl;
-              }
-            }
-          }
-
-          if (!signedUrl && document.storagePath) {
-            const res = await fetch(`/api/storage/signed-url?bucket=employee-documents&path=${encodeURIComponent(document.storagePath)}`, {
-              headers: token ? { Authorization: `Bearer ${token}` } : {}
-            });
-            if (res.ok) {
-              const data = await res.json();
-              if (data.signedUrl) {
-                signedUrl = data.signedUrl;
-              }
-            }
-          }
-
-          if (signedUrl && active) {
-            setBlobUrl(signedUrl);
-          } else if (document.id) {
-            // Fallback direct backend stream
-            if (active) setBlobUrl(`/api/documents/download/${document.id}`);
+          if (!apiClient.getToken()) {
+            if (active) setError('Sign in with Google in Company Settings to preview files archived in Google Drive.');
           } else {
-            if (active) setError('Document preview link could not be generated.');
+            const driveId = document.storagePath?.startsWith('drive:')
+              ? document.storagePath.replace(/^drive:/, '')
+              : document.id;
+            const res = await fetch(`/api/documents/download/${encodeURIComponent(driveId)}`, {
+              headers: apiClient.getWorkspaceHeaders()
+            });
+            if (!res.ok) {
+              throw new Error('Unable to fetch document from Google Drive.');
+            }
+            const blob = await res.blob();
+            createdUrl = URL.createObjectURL(blob);
+            if (active) setBlobUrl(createdUrl);
           }
         } else {
           if (active) setError('Document file data is not available for preview.');
@@ -96,17 +75,37 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ docu
     };
   }, [document]);
 
-  const handleDownload = () => {
+  const handleDownload = async () => {
     if (blobUrl) {
       const a = window.document.createElement('a');
       a.href = blobUrl;
       a.download = document.originalFilename || 'document';
-      a.target = '_blank';
       window.document.body.appendChild(a);
       a.click();
       window.document.body.removeChild(a);
-    } else if (document.id) {
-      window.open(`/api/documents/download/${document.id}`, '_blank');
+      return;
+    }
+    if (document.id && apiClient.getToken()) {
+      try {
+        const driveId = document.storagePath?.startsWith('drive:')
+          ? document.storagePath.replace(/^drive:/, '')
+          : document.id;
+        const res = await fetch(`/api/documents/download/${encodeURIComponent(driveId)}`, {
+          headers: apiClient.getWorkspaceHeaders()
+        });
+        if (!res.ok) throw new Error('Unable to download document.');
+        const blob = await res.blob();
+        const url = URL.createObjectURL(blob);
+        const a = window.document.createElement('a');
+        a.href = url;
+        a.download = document.originalFilename || 'document';
+        window.document.body.appendChild(a);
+        a.click();
+        window.document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+      } catch (err: any) {
+        setError(err.message || 'Document download failed.');
+      }
     }
   };
 
@@ -208,7 +207,7 @@ export const DocumentPreviewModal: React.FC<DocumentPreviewModalProps> = ({ docu
                 className="px-4 py-2 bg-[#CB1417] text-white rounded-lg text-xs font-bold hover:bg-[#ED1F24] transition cursor-pointer flex items-center space-x-2 mx-auto"
               >
                 <ExternalLink className="w-4 h-4" />
-                <span>Open in Default Windows App</span>
+                <span>Open in System Default Viewer</span>
               </button>
             </div>
           )}

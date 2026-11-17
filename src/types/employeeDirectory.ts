@@ -101,8 +101,9 @@ export interface DirectoryEmployee {
   aadhaarNumber?: string; // 12 digits
   panNumber?: string; // 10 alphanumeric
   uanNumber?: string; // 12 digits
-    esicNumber?: string;
+  esicNumber?: string;
   esiNumber?: string;
+  pfNumber?: string;
   otherStatutoryId?: string;
 
   // E. Bank & Financial Information

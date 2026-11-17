@@ -148,15 +148,15 @@ export const BrandColorCustomizer: React.FC<BrandColorCustomizerProps> = ({
   const handleSave = async () => {
     // Validate main colors
     if (!isValidHex(colors.primary)) {
-      setValidationError('Primary brand color must be a valid hex code (e.g. #1e3a8a).');
+      setValidationError('Primary brand color must be a valid hex code (e.g. #CB1417).');
       return;
     }
     if (!isValidHex(colors.secondary)) {
-      setValidationError('Secondary brand color must be a valid hex code (e.g. #475569).');
+      setValidationError('Secondary brand color must be a valid hex code (e.g. #18181B).');
       return;
     }
     if (!isValidHex(colors.accent)) {
-      setValidationError('Accent color must be a valid hex code (e.g. #d97706).');
+      setValidationError('Accent color must be a valid hex code (e.g. #ED1F24).');
       return;
     }
 
@@ -295,7 +295,7 @@ export const BrandColorCustomizer: React.FC<BrandColorCustomizerProps> = ({
                   type="text"
                   value={colors.primary}
                   onChange={(e) => setPrimary(e.target.value)}
-                  placeholder="#1e3a8a"
+                  placeholder="#CB1417"
                   className={`px-3 py-2 font-mono uppercase font-bold rounded border w-36 ${
                     isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'
                   }`}
@@ -340,7 +340,7 @@ export const BrandColorCustomizer: React.FC<BrandColorCustomizerProps> = ({
                   type="text"
                   value={colors.secondary}
                   onChange={(e) => setSecondary(e.target.value)}
-                  placeholder="#475569"
+                  placeholder="#18181B"
                   className={`px-3 py-2 font-mono uppercase font-bold rounded border w-36 ${
                     isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'
                   }`}
@@ -385,7 +385,7 @@ export const BrandColorCustomizer: React.FC<BrandColorCustomizerProps> = ({
                   type="text"
                   value={colors.accent}
                   onChange={(e) => setAccent(e.target.value)}
-                  placeholder="#d97706"
+                  placeholder="#ED1F24"
                   className={`px-3 py-2 font-mono uppercase font-bold rounded border w-36 ${
                     isDark ? 'bg-black border-zinc-800 text-white' : 'bg-white border-zinc-300 text-black'
                   }`}

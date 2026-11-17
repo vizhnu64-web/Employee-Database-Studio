@@ -9,35 +9,91 @@ import { Sidebar, ActiveTab } from './components/Sidebar';
 import { DashboardView } from './components/DashboardView';
 import { ImportView } from './components/ImportView';
 import { EmployeesView } from './components/EmployeesView';
-import { ValidationView } from './components/ValidationView';
 import { GeneratorView } from './components/GeneratorView';
-import { ExportCenterView } from './components/ExportCenterView';
+import { LayoutEditorView } from './components/LayoutEditorView';
 import { HistoryView } from './components/HistoryView';
 import { SettingsView } from './components/SettingsView';
-import { LayoutEditorView } from './components/LayoutEditorView';
 import { EmailDeliveryView } from './components/EmailDeliveryView';
 import { EmployeeDirectoryView } from './components/employeeDirectory/EmployeeDirectoryView';
-import { AttendanceView } from './components/AttendanceView';
-import { ServerAdminView } from './components/ServerAdminView';
-import { ClientConnectionView } from './components/ClientConnectionView';
-import { UserManagementView } from './components/UserManagementView';
-import { BackupRestoreView } from './components/BackupRestoreView';
-import { LicenseManagementView } from './components/LicenseManagementView';
+import { ManualPayslipView } from './components/ManualPayslipView';
 import { PayslipPreviewModal } from './components/PayslipPreviewModal';
-import { ChangePasswordModal } from './components/ChangePasswordModal';
-import { LoginView } from './components/LoginView';
-import { CompanySettings, EmployeeRecord, GeneratedPayslipRecord, PayslipLayoutSettings, DEFAULT_LAYOUT_SETTINGS, EmailSettings, DEFAULT_EMAIL_SETTINGS } from './types/payroll';
+import {
+  CompanySettings,
+  EmployeeRecord,
+  GeneratedPayslipRecord,
+  PayslipLayoutSettings,
+  DEFAULT_LAYOUT_SETTINGS,
+  EmailSettings,
+  DEFAULT_EMAIL_SETTINGS,
+} from './types/payroll';
 import { DirectoryEmployee, EmployeeDocument } from './types/employeeDirectory';
 import { DEFAULT_COMPANY_SETTINGS, localDB } from './utils/dbStorage';
 import { createSampleWorkbookBuffer, mapRowsToEmployeeRecords, parseExcelFile } from './utils/excelParser';
 import { autoDetectColumnMapping } from './utils/columnDetector';
-import { apiClient, AuthUser } from './utils/apiClient';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
-import { Trash2, RefreshCw } from 'lucide-react';
+import { apiClient, WorkspaceUser } from './utils/apiClient';
+import {
+  getGoogleSession,
+  getWorkspaceLinks,
+  subscribeGoogleSession,
+  subscribeWorkspaceLinks,
+  GoogleSessionState,
+  WorkspaceLinks,
+} from './utils/googleAuthClient';
+import { applyGlobalBrandColors, extractBrandColorsFromSettings } from './utils/brandColors';
+import { Trash2, RefreshCw, AlertTriangle, ShieldCheck } from 'lucide-react';
+
+const LAYOUT_PREVIEW_FALLBACK: EmployeeRecord = {
+  id: 'layout_preview_sample',
+  employeeId: 'EMP0001',
+  name: 'Alex Morgan',
+  email: 'alex.morgan@apexenterprise.com',
+  phone: '+91 98765 43210',
+  department: 'Engineering',
+  designation: 'Senior Software Engineer',
+  joiningDate: '2023-03-15',
+  paymentDate: '2026-10-31',
+  ctc: 70000,
+  employerPf: 3600,
+  employerEsi: 0,
+  basic: 36000,
+  hra: 18000,
+  specialAllowance: 8400,
+  otherAllowances: 7600,
+  calculatedGross: 66400,
+  pf: 3600,
+  employeePf: 3600,
+  esi: 0,
+  professionalTax: 200,
+  tds: 4200,
+  loan: 0,
+  lateDeduction: 0,
+  lopDays: 0,
+  lopAmount: 0,
+  lopDeduction: 0,
+  otherDeductions: 0,
+  calculatedDeductions: 8000,
+  calculatedNet: 58400,
+  paidDays: 31,
+  unpaidDays: 0,
+  totalWorkingDays: 22,
+  pfNumber: 'MH/BAN/0012345/000/0001234',
+  esiNumber: '31-00-123456-000-0001',
+  pan: 'ABCDE1234F',
+  uan: '100928374651',
+  bankName: 'First National Bank',
+  bankAccount: '987654324821',
+  ifscCode: 'FNBK0000412',
+  branchName: 'MG Road Corporate Branch',
+  accountHolderName: 'Alex Morgan',
+  isValid: true,
+  issues: [],
+};
 
 function AppContent() {
   const { isDark } = useTheme();
   const [activeTab, setActiveTab] = useState<ActiveTab>('dashboard');
+  const [settingsSectionTarget, setSettingsSectionTarget] = useState<'info' | 'branding' | 'payslip' | 'email' | 'google' | 'signatory' | 'database' | undefined>(undefined);
   const [employees, setEmployees] = useState<EmployeeRecord[]>([]);
   const [history, setHistory] = useState<GeneratedPayslipRecord[]>([]);
   const [directoryEmployees, setDirectoryEmployees] = useState<DirectoryEmployee[]>([]);
@@ -47,67 +103,64 @@ function AppContent() {
   const [emailSettings, setEmailSettings] = useState<EmailSettings>(DEFAULT_EMAIL_SETTINGS);
   const [selectedMonth, setSelectedMonth] = useState<string>('October');
   const [selectedYear, setSelectedYear] = useState<number>(2026);
-  const [previewEmployee, setPreviewEmployee] = useState<EmployeeRecord | null>(null);
+  const [previewState, setPreviewState] = useState<{ employee: EmployeeRecord; method: 'Bulk Payroll' | 'Manual Entry' } | null>(null);
   const [isInitializing, setIsInitializing] = useState(true);
   const [toastNotification, setToastNotification] = useState<string | null>(null);
   const [showClearConfirmModal, setShowClearConfirmModal] = useState(false);
   const [isClearingData, setIsClearingData] = useState(false);
-  const [currentUser, setCurrentUser] = useState<AuthUser | null>(() => (
-    apiClient.getToken() ? apiClient.getCurrentUser() : null
-  ));
+  const [googleSession, setGoogleSession] = useState<GoogleSessionState>(() => getGoogleSession());
+  const [workspaceLinks, setWorkspaceLinksState] = useState<WorkspaceLinks>(() => getWorkspaceLinks());
+  const [workspaceUser] = useState<WorkspaceUser>({
+    id: 1,
+    companyId: 1,
+    username: 'hr_manager',
+    fullName: 'HR Manager',
+    role: 'admin',
+    email: 'hr@company.com',
+  });
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
-  const [showChangePasswordModal, setShowChangePasswordModal] = useState(false);
 
-  // Verify existing auth token and listen for 401 session expiration
+  // Subscribe cleanly to in-memory GIS auth & non-secret resource links
   useEffect(() => {
-    let active = true;
-    const unsubscribe = apiClient.onUnauthorized(() => {
-      if (active) {
-        setCurrentUser(null);
-        setToastNotification('Session expired or authentication required. Please sign in.');
-      }
-    });
-
-    async function validateSession() {
-      const token = apiClient.getToken();
-      if (!token) {
-        if (active) setCurrentUser(null);
-        return;
-      }
-      try {
-        const res = await apiClient.verifyToken();
-        if (active && res.success && res.user) {
-          setCurrentUser(res.user);
-        }
-      } catch {
-        if (active) setCurrentUser(null);
-      }
-    }
-
-    validateSession();
-
+    const unsubSession = subscribeGoogleSession(setGoogleSession);
+    const unsubLinks = subscribeWorkspaceLinks(setWorkspaceLinksState);
     return () => {
-      active = false;
-      unsubscribe();
+      unsubSession();
+      unsubLinks();
     };
   }, []);
 
-  // Initialize data from local SQLite / IndexedDB
+  // Apply brand color CSS variables whenever settings or theme change
+  useEffect(() => {
+    applyGlobalBrandColors(extractBrandColorsFromSettings(settings));
+  }, [settings, isDark]);
+
+  // Initialize local draft workspace immediately (zero blocking auth walls)
   useEffect(() => {
     let isMounted = true;
     const safetyTimer = setTimeout(() => {
       if (isMounted) setIsInitializing(false);
-    }, 300);
+    }, 350);
 
     async function loadInitialData() {
       try {
-        const loadedSettings = await localDB.getSettings();
-        const loadedEmployees = await localDB.getEmployees();
-        const loadedHistory = await localDB.getHistory();
-        const loadedLayout = await localDB.getLayoutSettings();
-        const loadedEmail = await localDB.getEmailSettings();
-        const loadedDirectory = await localDB.getDirectoryEmployees();
-        const loadedDocs = await localDB.getEmployeeDocuments();
+        const [
+          loadedSettings,
+          loadedEmployees,
+          loadedHistory,
+          loadedLayout,
+          loadedEmail,
+          loadedDirectory,
+          loadedDocs,
+        ] = await Promise.all([
+          localDB.getSettings(),
+          localDB.getEmployees(),
+          localDB.getHistory(),
+          localDB.getLayoutSettings(),
+          localDB.getEmailSettings(),
+          localDB.getDirectoryEmployees(),
+          localDB.getEmployeeDocuments(),
+        ]);
 
         if (isMounted) {
           setSettings(loadedSettings);
@@ -119,7 +172,7 @@ function AppContent() {
           setDocuments(loadedDocs);
         }
       } catch (err) {
-        console.error('Error initializing local database:', err);
+        console.error('Error initializing workspace:', err);
       } finally {
         if (isMounted) {
           clearTimeout(safetyTimer);
@@ -141,7 +194,11 @@ function AppContent() {
     setTimeout(() => setToastNotification(null), 3500);
   };
 
-  // Handler for loaded data from Excel/CSV import
+  const openGoogleConnectionTab = () => {
+    setSettingsSectionTarget('google');
+    setActiveTab('settings');
+  };
+
   const handleDataLoaded = async (records: EmployeeRecord[], fileName: string) => {
     setEmployees(records);
     await localDB.saveEmployees(records);
@@ -149,7 +206,6 @@ function AppContent() {
     showToast(`Loaded ${records.length} employee records from "${fileName}".`);
   };
 
-  // Handler for loading demo corporate dataset
   const handleLoadDemoData = async () => {
     try {
       const buffer = createSampleWorkbookBuffer();
@@ -164,19 +220,18 @@ function AppContent() {
 
       setEmployees(records);
       await localDB.saveEmployees(records);
-      showToast('Loaded 10-staff verified demo payroll dataset into local storage.');
+      showToast('Loaded 10-staff verified demo payroll dataset.');
       setActiveTab('dashboard');
     } catch (err: any) {
-      alert(`Error loading sample data: ${err.message}`);
+      showToast(`Error loading sample data: ${err.message}`);
     }
   };
 
-  // Handler for downloading sample template
   const handleDownloadTemplate = () => {
     const buffer = createSampleWorkbookBuffer();
     const arrayBuffer = buffer.buffer.slice(buffer.byteOffset, buffer.byteOffset + buffer.byteLength) as ArrayBuffer;
     const blob = new Blob([arrayBuffer], {
-      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+      type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -186,10 +241,9 @@ function AppContent() {
     a.click();
     document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    showToast('Downloaded sample Excel template (.xlsx).');
+    showToast('Downloaded sample Excel template.');
   };
 
-  // Handler for clearing imported employees
   const handleClearData = () => {
     setShowClearConfirmModal(true);
   };
@@ -199,51 +253,53 @@ function AppContent() {
     try {
       setEmployees([]);
       await localDB.clearEmployees();
-      showToast('Imported employee payroll dataset cleared from local database.');
+      showToast('Imported employee payroll dataset cleared.');
       setShowClearConfirmModal(false);
     } catch (err: any) {
-      alert(`Failed to clear data: ${err.message || 'Unknown error'}`);
+      showToast(`Failed to clear data: ${err.message}`);
     } finally {
       setIsClearingData(false);
     }
   };
 
-  // Handler for updating a single employee record
   const handleUpdateEmployee = async (updated: EmployeeRecord) => {
-    const newEmployees = employees.map(e => e.id === updated.id ? updated : e);
+    const newEmployees = employees.map((e) => (e.id === updated.id ? updated : e));
     setEmployees(newEmployees);
     await localDB.saveEmployees(newEmployees);
-    showToast(`Updated and re-verified record for ${updated.name}.`);
+    showToast(`Updated record for ${updated.name}.`);
   };
 
-  // Handler for updating all employees in batch
-  const handleBatchUpdated = async (updated: EmployeeRecord[]) => {
-    setEmployees(updated);
-    await localDB.saveEmployees(updated);
-  };
-
-  // Handler for saving company settings
-  const handleSaveSettings = async (newSettings: CompanySettings) => {
+  const handleSaveSettings = async (newSettings: CompanySettings): Promise<{ cloudSaved: boolean }> => {
     setSettings(newSettings);
     await localDB.saveSettings(newSettings);
+    if (googleSession.isConnected && workspaceLinks.spreadsheetId) {
+      await apiClient.saveSettings(newSettings);
+      return { cloudSaved: true };
+    }
+    return { cloudSaved: false };
   };
 
-  const handleSaveLayout = async (layout: PayslipLayoutSettings) => {
-    setLayoutSettings(layout);
-    await localDB.saveLayoutSettings(layout);
-    showToast('Payslip layout configuration saved locally.');
+  const handleSaveLayoutSettings = async (newLayout: PayslipLayoutSettings) => {
+    setLayoutSettings(newLayout);
+    await localDB.saveLayoutSettings(newLayout);
+    if (googleSession.isConnected && workspaceLinks.spreadsheetId) {
+      try {
+        await apiClient.saveLayoutSettings(newLayout);
+      } catch (err: any) {
+        showToast(`Layout saved locally; Google Sheets sync failed: ${err.message}`);
+      }
+    }
   };
 
   const handleSaveEmailSettings = async (emailCfg: EmailSettings) => {
     setEmailSettings(emailCfg);
     await localDB.saveEmailSettings(emailCfg);
-    showToast('SMTP email settings saved securely.');
+    showToast('Email template settings saved.');
   };
 
-  // Handler when a payslip is generated
   const handleRecordGenerated = (record: GeneratedPayslipRecord) => {
-    setHistory(prev => {
-      const filtered = prev.filter(h => h.id !== record.id);
+    setHistory((prev) => {
+      const filtered = prev.filter((h) => h.id !== record.id);
       return [record, ...filtered];
     });
   };
@@ -254,22 +310,53 @@ function AppContent() {
   };
 
   const handleSaveDirectoryEmployee = async (emp: DirectoryEmployee) => {
-    const existing = directoryEmployees.some(e => e.id === emp.id || e.employeeId === emp.employeeId);
+    const existing = directoryEmployees.some((e) => e.id === emp.id || e.employeeId === emp.employeeId);
     let updated: DirectoryEmployee[];
     if (existing) {
-      updated = directoryEmployees.map(e => (e.id === emp.id || e.employeeId === emp.employeeId) ? emp : e);
+      updated = directoryEmployees.map((e) => (e.id === emp.id || e.employeeId === emp.employeeId ? emp : e));
     } else {
       updated = [emp, ...directoryEmployees];
     }
     setDirectoryEmployees(updated);
     await localDB.saveDirectoryEmployee(emp);
-    showToast(`Saved employee record for ${emp.legalName}.`);
+
+    if (googleSession.isConnected && workspaceLinks.spreadsheetId) {
+      try {
+        await apiClient.saveEmployee({
+          employeeId: emp.employeeId,
+          legalName: emp.legalName,
+          workEmail: emp.workEmail,
+          primaryPhone: emp.primaryPhone,
+          designation: emp.designation,
+          department: emp.department,
+          joiningDate: emp.joiningDate,
+          employmentStatus: emp.employmentStatus,
+          accountNumber: emp.accountNumber,
+          bankName: emp.bankName,
+          ifscCode: emp.ifscCode,
+          panNumber: emp.panNumber,
+          uanNumber: emp.uanNumber,
+          esiNumber: emp.esiNumber,
+          standardBasic: emp.standardBasic,
+          standardHra: emp.standardHra,
+          standardAllowances: emp.standardAllowances,
+          standardCtc: emp.standardCtc,
+          standardEmployerEsi: emp.standardEmployerEsi,
+        });
+        showToast(`Saved ${emp.legalName} to Google Sheets & local drafts.`);
+        return;
+      } catch (err: any) {
+        showToast(`Saved ${emp.legalName} locally (Google Sheets sync deferred: ${err.message}).`);
+        return;
+      }
+    }
+    showToast(`Saved ${emp.legalName} to local drafts (connect Google Sheets to sync permanently).`);
   };
 
   const handleSaveDirectoryEmployeesBatch = async (importedList: DirectoryEmployee[]) => {
     let current = [...directoryEmployees];
     for (const emp of importedList) {
-      const existingIdx = current.findIndex(e => e.id === emp.id || e.employeeId.toUpperCase() === emp.employeeId.toUpperCase());
+      const existingIdx = current.findIndex((e) => e.id === emp.id || e.employeeId.toUpperCase() === emp.employeeId.toUpperCase());
       if (existingIdx >= 0) {
         current[existingIdx] = emp;
       } else {
@@ -282,21 +369,24 @@ function AppContent() {
   };
 
   const handleDeleteDirectoryEmployee = async (id: string) => {
-    const emp = directoryEmployees.find(e => e.id === id);
-    const updated = directoryEmployees.filter(e => e.id !== id);
+    const emp = directoryEmployees.find((e) => e.id === id);
+    const updated = directoryEmployees.filter((e) => e.id !== id);
     setDirectoryEmployees(updated);
     if (emp) {
-      setDocuments(prev => prev.filter(d => d.employeeId !== emp.employeeId));
+      setDocuments((prev) => prev.filter((d) => d.employeeId !== emp.employeeId));
     }
     await localDB.deleteDirectoryEmployee(id);
-    showToast('Deleted employee record from database.');
+    if (emp && googleSession.isConnected && workspaceLinks.spreadsheetId) {
+      await apiClient.deleteEmployee(emp.employeeId).catch(() => null);
+    }
+    showToast('Deleted employee record.');
   };
 
   const handleSaveDocument = async (doc: EmployeeDocument) => {
-    const existing = documents.some(d => d.id === doc.id);
+    const existing = documents.some((d) => d.id === doc.id);
     let updated: EmployeeDocument[];
     if (existing) {
-      updated = documents.map(d => d.id === doc.id ? doc : d);
+      updated = documents.map((d) => (d.id === doc.id ? doc : d));
     } else {
       updated = [doc, ...documents];
     }
@@ -306,13 +396,13 @@ function AppContent() {
   };
 
   const handleDeleteDocument = async (docId: string) => {
-    setDocuments(prev => prev.filter(d => d.id !== docId));
+    setDocuments((prev) => prev.filter((d) => d.id !== docId));
     await localDB.deleteEmployeeDocument(docId);
     showToast('Document deleted.');
   };
 
   const handleSyncToPayrollBatch = async (dirList: DirectoryEmployee[]) => {
-    const newRecords: EmployeeRecord[] = dirList.map(dir => {
+    const newRecords: EmployeeRecord[] = dirList.map((dir) => {
       const basic = dir.standardBasic || 35000;
       const hra = dir.standardHra || 14000;
       const allowances = dir.standardAllowances || 6000;
@@ -353,13 +443,13 @@ function AppContent() {
         paidDays: 31,
         unpaidDays: 0,
         isValid: true,
-        issues: []
+        issues: [],
       };
     });
 
     const merged = [...employees];
-    newRecords.forEach(rec => {
-      const idx = merged.findIndex(e => e.employeeId === rec.employeeId);
+    newRecords.forEach((rec) => {
+      const idx = merged.findIndex((e) => e.employeeId === rec.employeeId);
       if (idx >= 0) {
         merged[idx] = rec;
       } else {
@@ -376,73 +466,57 @@ function AppContent() {
     const loadedSettings = await localDB.getSettings();
     const loadedEmployees = await localDB.getEmployees();
     const loadedHistory = await localDB.getHistory();
+    const loadedLayout = await localDB.getLayoutSettings();
     const loadedDirectory = await localDB.getDirectoryEmployees();
     const loadedDocs = await localDB.getEmployeeDocuments();
     setSettings(loadedSettings);
     setEmployees(loadedEmployees);
     setHistory(loadedHistory);
+    setLayoutSettings(loadedLayout);
     setDirectoryEmployees(loadedDirectory);
     setDocuments(loadedDocs);
-    showToast('Database successfully restored from backup.');
+    showToast('Database successfully restored.');
   };
 
-  const invalidCount = employees.filter(e => !e.isValid || e.issues.length > 0).length;
-
-  const handleLogout = () => {
-    apiClient.logout();
-    setCurrentUser(null);
-    setActiveTab('dashboard');
-    showToast('Logged out of session.');
-  };
+  const invalidCount = employees.filter((e) => !e.isValid || e.issues.length > 0).length;
 
   if (isInitializing) {
     return (
       <div className={`h-screen w-screen flex flex-col items-center justify-center font-sans ${isDark ? 'bg-[#000000] text-white' : 'bg-[#FFFFFF] text-black'}`}>
-        <div className="w-12 h-12 rounded-xl bg-[#CB1417] flex items-center justify-center text-white font-bold text-sm tracking-wider shadow-lg shadow-red-900/40 animate-pulse mb-3">
+        <div className="w-12 h-12 rounded-xl bg-[#CB1417] flex items-center justify-center text-white font-bold text-sm tracking-wider shadow-lg shadow-[#CB1417]/30 mb-3">
           EDS
         </div>
-        <p className="text-xs font-semibold tracking-wide">Initializing Employee Database Studio...</p>
-        <p className="text-[11px] opacity-60 mt-1">Enterprise Cloud Edition</p>
+        <p className="text-xs font-semibold tracking-wide">Loading Employee Database Studio...</p>
       </div>
     );
   }
 
-  if (!currentUser) {
-    return (
-      <LoginView
-        companySettings={settings}
-        onLoginSuccess={(user) => {
-          setCurrentUser(user);
-          setActiveTab('dashboard');
-          showToast(`Signed in as ${user.fullName}.`);
-        }}
-      />
-    );
-  }
+  const layoutSampleEmployee = employees[0] || LAYOUT_PREVIEW_FALLBACK;
 
   return (
     <div className={`h-screen w-screen flex flex-col ${isDark ? 'bg-[#000000] text-white' : 'bg-[#FFFFFF] text-black'} overflow-hidden font-sans transition-colors duration-200`}>
       {/* Title Bar */}
       <TitleBar
-        onLoadDemoData={handleLoadDemoData}
         onDownloadTemplate={handleDownloadTemplate}
         totalEmployees={employees.length}
         selectedMonth={selectedMonth}
         selectedYear={selectedYear}
         companySettings={settings}
-        currentUser={currentUser}
-        onLogout={handleLogout}
-        onOpenChangePassword={() => setShowChangePasswordModal(true)}
         isMobileMenuOpen={isMobileMenuOpen}
-        onToggleMobileMenu={() => setIsMobileMenuOpen(prev => !prev)}
+        onToggleMobileMenu={() => setIsMobileMenuOpen((prev) => !prev)}
+        googleSession={googleSession}
+        workspaceLinks={workspaceLinks}
+        onOpenGoogleSettings={openGoogleConnectionTab}
       />
 
       {/* Main Workspace: Sidebar + Content View */}
       <div className="flex-1 flex overflow-hidden relative">
-        {/* Navigation Sidebar */}
         <Sidebar
           activeTab={activeTab}
-          setActiveTab={setActiveTab}
+          setActiveTab={(tab) => {
+            if (tab !== 'settings') setSettingsSectionTarget(undefined);
+            setActiveTab(tab);
+          }}
           totalEmployees={employees.length}
           invalidCount={invalidCount}
           historyCount={history.length}
@@ -451,16 +525,39 @@ function AppContent() {
           setSelectedMonth={setSelectedMonth}
           selectedYear={selectedYear}
           setSelectedYear={setSelectedYear}
-          currentUser={currentUser}
-          onLogout={handleLogout}
-          onOpenChangePassword={() => setShowChangePasswordModal(true)}
           isMobileOpen={isMobileMenuOpen}
           onCloseMobile={() => setIsMobileMenuOpen(false)}
         />
 
-        {/* Viewport Content Area */}
-        <main className={`flex-1 overflow-y-auto p-6 ${isDark ? 'bg-[#000000]' : 'bg-[#FAFAFA]'} transition-colors duration-200`}>
-          <div className="max-w-6xl mx-auto pb-10">
+        <main className={`flex-1 overflow-y-auto p-4 sm:p-6 ${isDark ? 'bg-[#000000]' : 'bg-[#FAFAFA]'} transition-colors duration-200`}>
+          <div className="max-w-7xl mx-auto pb-10 space-y-4">
+            {/* Non-blocking Session Expiry Reconnect Prompt (preserves unsaved form edits & local drafts) */}
+            {googleSession.expired && (
+              <div
+                className={`p-3.5 rounded-xl border flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs ${
+                  isDark ? 'bg-[#2E0B0D] border-[#57151A] text-[#FCA5A5]' : 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
+                }`}
+              >
+                <div className="flex items-start space-x-2.5">
+                  <AlertTriangle className="w-4 h-4 text-[#ED1F24] shrink-0 mt-0.5" />
+                  <div>
+                    <span className="font-bold block">Google OAuth Session Expired</span>
+                    <span className="text-[11px] opacity-90">
+                      Your unsaved form edits and temporary local drafts are intact. Reconnect your Google account to resume saving permanently to Google Sheets &amp; Drive.
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={openGoogleConnectionTab}
+                  className="px-3.5 py-1.5 rounded-lg bg-[#CB1417] hover:bg-[#ED1F24] text-white font-bold whitespace-nowrap shrink-0 cursor-pointer flex items-center space-x-1.5"
+                >
+                  <ShieldCheck className="w-3.5 h-3.5" />
+                  <span>Reconnect Google</span>
+                </button>
+              </div>
+            )}
+
             {activeTab === 'dashboard' && (
               <DashboardView
                 employees={employees}
@@ -486,7 +583,7 @@ function AppContent() {
                 onSaveDocument={handleSaveDocument}
                 onDeleteDocument={handleDeleteDocument}
                 onSyncToPayrollBatch={handleSyncToPayrollBatch}
-                payrollHistoryCountForEmployee={(empId) => history.filter(h => h.employeeId === empId).length}
+                payrollHistoryCountForEmployee={(empId) => history.filter((h) => h.employeeId === empId).length}
               />
             )}
 
@@ -505,20 +602,21 @@ function AppContent() {
               <EmployeesView
                 employees={employees}
                 onUpdateEmployee={handleUpdateEmployee}
-                onPreviewPayslip={(emp) => setPreviewEmployee(emp)}
+                onPreviewPayslip={(emp) => setPreviewState({ employee: emp, method: 'Bulk Payroll' })}
                 onClearData={handleClearData}
                 settings={settings}
               />
             )}
 
-            {activeTab === 'validation' && (
-              <ValidationView
-                employees={employees}
-                onBatchUpdated={handleBatchUpdated}
-                onNavigateToGenerator={() => setActiveTab('generator')}
+            {activeTab === 'manual_payslip' && (
+              <ManualPayslipView
                 settings={settings}
-                selectedMonth={selectedMonth}
-                selectedYear={selectedYear}
+                layoutSettings={layoutSettings}
+                directoryEmployees={directoryEmployees}
+                onAddDirectoryEmployee={handleSaveDirectoryEmployee}
+                onPreviewPayslip={(emp) => setPreviewState({ employee: emp, method: 'Manual Entry' })}
+                onRecordGenerated={handleRecordGenerated}
+                showToast={showToast}
               />
             )}
 
@@ -528,68 +626,21 @@ function AppContent() {
                 settings={settings}
                 selectedMonth={selectedMonth}
                 selectedYear={selectedYear}
-                onPreviewEmployee={(emp) => setPreviewEmployee(emp)}
+                onPreviewEmployee={(emp) => setPreviewState({ employee: emp, method: 'Bulk Payroll' })}
                 onRecordGenerated={handleRecordGenerated}
                 history={history}
                 layoutSettings={layoutSettings}
               />
             )}
 
-            {activeTab === 'export' && (
-              <ExportCenterView
-                employees={employees}
-                history={history}
-                settings={settings}
-                selectedMonth={selectedMonth}
-                selectedYear={selectedYear}
-                layoutSettings={layoutSettings}
-              />
-            )}
-
-            {activeTab === 'history' && (
-              <HistoryView
-                history={history}
-                onHistoryCleared={handleHistoryCleared}
-                onPreviewEmployee={(emp) => setPreviewEmployee(emp)}
-                employees={employees}
-                settings={settings}
-              />
-            )}
-
             {activeTab === 'layout' && (
               <LayoutEditorView
                 layoutSettings={layoutSettings}
-                onSaveLayout={handleSaveLayout}
+                onSaveLayout={handleSaveLayoutSettings}
                 settings={settings}
-                sampleEmployee={employees[0] || {
-                  employeeId: 'EMP001',
-                  name: 'Arun Kumar',
-                  department: 'Engineering',
-                  designation: 'Senior Developer',
-                  basic: 45000,
-                  hra: 18000,
-                  conveyance: 1600,
-                  medicalAllowance: 1250,
-                  specialAllowance: 5000,
-                  otherEarnings: 2000,
-                  grossEarnings: 72850,
-                  pf: 1800,
-                  esi: 0,
-                  professionalTax: 200,
-                  tds: 3500,
-                  otherDeductions: 500,
-                  totalDeductions: 6000,
-                  calculatedNet: 66850,
-                  bankAccount: '123456789012',
-                  pan: 'ABCDE1234F',
-                  joiningDate: '15-Jan-2023',
-                  email: 'arun.kumar@company.com',
-                  paidDays: 31,
-                  workingDays: 31,
-                  leaveDays: 0,
-                  isValid: true,
-                  issues: []
-                }}
+                sampleEmployee={layoutSampleEmployee}
+                allEmployees={employees}
+                onNavigateToEmployeeData={() => setActiveTab(employees.length > 0 ? 'records' : 'directory')}
               />
             )}
 
@@ -602,7 +653,18 @@ function AppContent() {
                 layoutSettings={layoutSettings}
                 selectedMonth={selectedMonth}
                 selectedYear={selectedYear}
-                onNavigateToSettings={() => setActiveTab('settings')}
+                onNavigateToSettings={openGoogleConnectionTab}
+              />
+            )}
+
+            {activeTab === 'history' && (
+              <HistoryView
+                history={history}
+                onHistoryCleared={handleHistoryCleared}
+                onPreviewEmployee={(emp) => setPreviewState({ employee: emp, method: 'Bulk Payroll' })}
+                employees={employees}
+                settings={settings}
+                layoutSettings={layoutSettings}
               />
             )}
 
@@ -611,45 +673,23 @@ function AppContent() {
                 settings={settings}
                 onSaveSettings={handleSaveSettings}
                 onDatabaseRestored={handleDatabaseRestored}
-                currentUser={currentUser}
+                currentUser={workspaceUser}
+                initialSection={settingsSectionTarget}
               />
-            )}
-
-            {activeTab === 'attendance' && (
-              <AttendanceView />
-            )}
-
-            {activeTab === 'server_admin' && (
-              <ServerAdminView settings={settings} />
-            )}
-
-            {activeTab === 'client_connection' && (
-              <ClientConnectionView />
-            )}
-
-            {activeTab === 'users' && (
-              <UserManagementView />
-            )}
-
-            {activeTab === 'backup' && (
-              <BackupRestoreView />
-            )}
-
-            {activeTab === 'license' && (
-              <LicenseManagementView />
             )}
           </div>
         </main>
       </div>
 
       {/* Global Payslip Preview Modal */}
-      {previewEmployee && (
+      {previewState && (
         <PayslipPreviewModal
-          employee={previewEmployee}
+          employee={previewState.employee}
           settings={settings}
           month={selectedMonth}
           year={selectedYear}
-          onClose={() => setPreviewEmployee(null)}
+          generationMethod={previewState.method}
+          onClose={() => setPreviewState(null)}
           onSavedToHistory={handleRecordGenerated}
           layoutSettings={layoutSettings}
         />
@@ -658,34 +698,21 @@ function AppContent() {
       {/* Clear Data Confirmation Modal */}
       {showClearConfirmModal && (
         <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className={`w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden p-6 space-y-5 ${
-            isDark ? 'bg-[#0D0D0E] border-[#2A2A2E] text-white' : 'bg-white border-[#E4E4E7] text-black'
-          }`}>
+          <div
+            className={`w-full max-w-md rounded-2xl border shadow-2xl overflow-hidden p-6 space-y-5 ${
+              isDark ? 'bg-[#0D0D0E] border-[#2A2A2E] text-white' : 'bg-white border-[#E4E4E7] text-black'
+            }`}
+          >
             <div className="flex items-center space-x-3">
               <div className="w-10 h-10 rounded-xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 shrink-0">
                 <Trash2 className="w-5 h-5" />
               </div>
               <div>
-                <h3 className="text-base font-bold tracking-tight">Clear Imported Payroll Dataset?</h3>
+                <h3 className="text-base font-bold tracking-tight">Clear Payroll Dataset?</h3>
                 <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
-                  This action cannot be undone.
+                  This clears only the active imported payroll batch. Your Employee Directory and Generation History remain intact.
                 </p>
               </div>
-            </div>
-
-            <div className={`p-3.5 rounded-xl border text-xs space-y-2 ${
-              isDark ? 'bg-[#141416] border-[#222226] text-zinc-300' : 'bg-[#FAFAFC] border-[#E4E4E7] text-zinc-700'
-            }`}>
-              <p className="font-semibold">What will be cleared:</p>
-              <ul className="list-disc list-inside space-y-1 text-zinc-500 dark:text-zinc-400">
-                <li>All active imported employee payroll records ({employees.length} records).</li>
-              </ul>
-              <p className="font-semibold pt-1 text-emerald-600 dark:text-emerald-400">What will be preserved safely:</p>
-              <ul className="list-disc list-inside space-y-1 text-emerald-600/80 dark:text-emerald-400/80">
-                <li>Master Employee Database & Documents</li>
-                <li>Payslip Generation History</li>
-                <li>Company, SMTP & Payslip Layout Settings</li>
-              </ul>
             </div>
 
             <div className="flex items-center justify-end space-x-2.5 pt-2 border-t dark:border-zinc-800 border-zinc-200">
@@ -703,7 +730,7 @@ function AppContent() {
                 type="button"
                 disabled={isClearingData}
                 onClick={executeClearData}
-                className="px-4 py-2 rounded-lg text-xs font-bold bg-red-600 hover:bg-red-700 text-white shadow-md shadow-red-600/30 transition cursor-pointer disabled:opacity-50 flex items-center space-x-2"
+                className="px-4 py-2 rounded-lg text-xs font-bold bg-[#CB1417] hover:bg-[#ED1F24] text-white shadow-md shadow-[#CB1417]/25 transition cursor-pointer disabled:opacity-50 flex items-center space-x-2"
               >
                 {isClearingData && <RefreshCw className="w-3.5 h-3.5 animate-spin" />}
                 <span>{isClearingData ? 'Clearing Dataset...' : 'Confirm & Clear Dataset'}</span>
@@ -713,20 +740,14 @@ function AppContent() {
         </div>
       )}
 
-      {/* Change Password Modal */}
-      <ChangePasswordModal
-        isOpen={showChangePasswordModal}
-        onClose={() => setShowChangePasswordModal(false)}
-        onSuccess={() => {
-          setShowChangePasswordModal(false);
-          showToast('Password updated successfully.');
-        }}
-      />
-
       {/* Toast Notification */}
       {toastNotification && (
-        <div className={`fixed bottom-5 right-5 ${isDark ? 'bg-[#111113] border-[#2A2A2E] text-white shadow-2xl' : 'bg-white border-neutral-200 text-black shadow-xl'} border text-xs px-4 py-2.5 rounded-xl z-50 flex items-center space-x-2.5 animate-in slide-in-from-bottom-2`}>
-          <span className="w-2 h-2 rounded-full bg-[#CB1417] shadow-sm shadow-red-500/50" />
+        <div
+          className={`fixed bottom-5 right-5 ${
+            isDark ? 'bg-[#111113] border-[#2A2A2E] text-white shadow-2xl' : 'bg-white border-neutral-200 text-black shadow-xl'
+          } border text-xs px-4 py-2.5 rounded-xl z-50 flex items-center space-x-2.5 animate-in slide-in-from-bottom-2`}
+        >
+          <span className="w-2 h-2 rounded-full bg-[#CB1417] shrink-0" />
           <span className="font-medium">{toastNotification}</span>
         </div>
       )}

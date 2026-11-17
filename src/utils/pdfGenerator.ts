@@ -2,7 +2,7 @@ import { jsPDF } from 'jspdf';
 import JSZip from 'jszip';
 import { CompanySettings, EmployeeRecord, PayslipLayoutSettings, DEFAULT_LAYOUT_SETTINGS } from '../types/payroll';
 import { numberToWords } from './numberToWords';
-import { getDaysInMonth } from './dateUtils';
+import { resolvePayslipSectionsData, formatMoneyDisplay } from './payslipFieldRegistry';
 
 /**
  * Sanitizes text for standard jsPDF fonts (WinAnsiEncoding) to prevent gibberish or encoding errors.
@@ -10,7 +10,7 @@ import { getDaysInMonth } from './dateUtils';
 function sanitizePdfText(text: string): string {
   if (!text) return '';
   return String(text)
-    .replace(/[^\x00-\x7F\u00A0-\u00FF]/g, match => {
+    .replace(/[^\x00-\x7F\u00A0-\u00FF]/g, (match) => {
       if (match === '₹') return 'Rs.';
       if (match === '€') return 'EUR ';
       if (match === '£') return 'GBP ';
@@ -32,8 +32,14 @@ function hexToRgb(hex: string): [number, number, number] {
   return [isNaN(r) ? 203 : r, isNaN(g) ? 20 : g, isNaN(b) ? 23 : b];
 }
 
+function resolvePdfFont(family?: PayslipLayoutSettings['fontFamily'] | 'inherit' | 'sans'): 'helvetica' | 'times' | 'courier' {
+  if (family === 'times') return 'times';
+  if (family === 'courier') return 'courier';
+  return 'helvetica';
+}
+
 /**
- * Generates a high-resolution, vector A4 Portrait PDF payslip for an employee.
+ * Generates a high-resolution, vector PDF payslip honoring full PayslipLayoutSettings and all 36 mapped fields.
  */
 export function generatePayslipPdf(
   record: EmployeeRecord,
@@ -44,476 +50,521 @@ export function generatePayslipPdf(
 ): jsPDF {
   const layout: PayslipLayoutSettings = {
     ...DEFAULT_LAYOUT_SETTINGS,
-    ...(layoutSettings || {})
+    ...(layoutSettings || {}),
   };
 
-  const [primaryR, primaryG, primaryB] = hexToRgb(layout.primaryColor);
-  const showSymbol = settings.showCurrencySymbol !== false;
+  const resolvedData = resolvePayslipSectionsData(record, settings, month, year, layout, true);
 
-  // A4 dimensions: 210 x 297 mm
+  const isLandscape = layout.orientation === 'landscape';
+  const [primaryR, primaryG, primaryB] = hexToRgb(layout.primaryColor || settings.themeColor || '#CB1417');
+  const showSymbol = settings.showCurrencySymbol !== false;
+  const pdfFont = resolvePdfFont(layout.fontFamily);
+  const headerFontSize = Math.max(12, Math.min(20, Number(layout.headerFontSize || 15)));
+  const bodyFontSize = Math.max(7, Math.min(11, Number(layout.bodyFontSize || 8)));
+
   const doc = new jsPDF({
-    orientation: 'portrait',
+    orientation: isLandscape ? 'landscape' : 'portrait',
     unit: 'mm',
-    format: 'a4'
+    format: 'a4',
   });
 
   doc.setProperties({
     title: `Payslip - ${sanitizePdfText(record.employeeId || '')} - ${sanitizePdfText(record.name || '')} (${sanitizePdfText(month)} ${year})`,
     subject: `Official Salary Payslip for ${sanitizePdfText(month)} ${year}`,
     author: sanitizePdfText(settings.companyName || 'Employee Database Studio'),
-    creator: 'Employee Database Studio'
+    creator: 'Employee Database Studio',
   });
 
-  const pageWidth = 210;
-  const pageHeight = 297;
-  const margin = 14;
-  const contentWidth = pageWidth - margin * 2; // 182mm
+  const pageWidth = isLandscape ? 297 : 210;
+  const pageHeight = isLandscape ? 210 : 297;
+  const margin = Math.max(8, Math.min(22, Number(layout.marginMm ?? 14)));
+  const contentWidth = pageWidth - margin * 2;
+  const bottomSafeY = pageHeight - margin - 12;
 
-  // Outer border
+  const ensureSpace = (currentY: number, neededHeight: number): number => {
+    if (currentY + neededHeight > bottomSafeY) {
+      doc.addPage();
+      doc.setDrawColor(210, 210, 215);
+      doc.setLineWidth(0.4);
+      doc.rect(margin, margin, contentWidth, pageHeight - margin * 2);
+      return margin + 8;
+    }
+    return currentY;
+  };
+
+  // Outer page frame
   doc.setDrawColor(210, 210, 215);
   doc.setLineWidth(0.4);
   doc.rect(margin, margin, contentWidth, pageHeight - margin * 2);
 
-  // Top header background
+  // Header strip
+  const headerBoxH = layout.templatePreset === 'compact' || layout.templatePreset === 'minimal_clean' ? 28 : 34;
   doc.setFillColor(252, 252, 252);
-  doc.rect(margin, margin, contentWidth, 32, 'F');
-  doc.line(margin, margin + 32, margin + contentWidth, margin + 32);
+  doc.rect(margin, margin, contentWidth, headerBoxH, 'F');
+  doc.line(margin, margin + headerBoxH, margin + contentWidth, margin + headerBoxH);
 
-  // Optional Logo with aspect ratio preservation and robust format detection
+  // Logo dimensions & position
+  const logoBounds =
+    layout.logoSize === 'small'
+      ? { maxW: 22, maxH: 16 }
+      : layout.logoSize === 'large'
+        ? { maxW: 42, maxH: 28 }
+        : { maxW: 32, maxH: 22 };
+  const logoPos = layout.logoPosition || 'left';
+
   let textStartX = margin + 6;
-  if (layout.showLogo && settings.logoDataUrl && typeof settings.logoDataUrl === 'string' && settings.logoDataUrl.startsWith('data:image/')) {
+  let textRightReserve = margin + contentWidth - 6;
+
+  if (
+    layout.showLogo &&
+    settings.logoDataUrl &&
+    typeof settings.logoDataUrl === 'string' &&
+    settings.logoDataUrl.startsWith('data:image/')
+  ) {
     try {
       let format = 'PNG';
       const lower = settings.logoDataUrl.toLowerCase();
-      if (lower.includes('image/jpeg') || lower.includes('image/jpg')) {
-        format = 'JPEG';
-      } else if (lower.includes('image/webp')) {
-        format = 'WEBP';
-      } else if (lower.includes('image/svg+xml')) {
-        throw new Error('SVG logo format requires rasterization');
-      }
+      if (lower.includes('image/jpeg') || lower.includes('image/jpg')) format = 'JPEG';
+      else if (lower.includes('image/webp')) format = 'WEBP';
+      else if (lower.includes('image/svg+xml')) throw new Error('SVG logo unsupported directly');
 
       const props = doc.getImageProperties(settings.logoDataUrl);
       const imgW = props.width || 100;
       const imgH = props.height || 100;
-      const maxW = 32;
-      const maxH = 24;
-      let renderW = maxW;
-      let renderH = (imgH * maxW) / imgW;
-      if (renderH > maxH) {
-        renderH = maxH;
-        renderW = (imgW * maxH) / imgH;
+      let renderW = logoBounds.maxW;
+      let renderH = (imgH * logoBounds.maxW) / imgW;
+      if (renderH > logoBounds.maxH) {
+        renderH = logoBounds.maxH;
+        renderW = (imgW * logoBounds.maxH) / imgH;
       }
 
-      doc.addImage(settings.logoDataUrl, format, margin + 4, margin + (32 - renderH) / 2, renderW, renderH);
-      textStartX = margin + renderW + 8;
+      const logoX =
+        logoPos === 'right'
+          ? margin + contentWidth - renderW - 5
+          : logoPos === 'center'
+            ? (pageWidth - renderW) / 2
+            : margin + 5;
+      const logoY = logoPos === 'center' ? margin + 2 : margin + (headerBoxH - renderH) / 2;
+
+      doc.addImage(settings.logoDataUrl, format, logoX, logoY, renderW, renderH);
+      if (logoPos === 'left') {
+        textStartX = margin + renderW + 9;
+      } else if (logoPos === 'right') {
+        textRightReserve = margin + contentWidth - renderW - 9;
+      }
     } catch {
       textStartX = margin + 6;
     }
   }
 
-  // Header alignment adjustments
   const isCenter = layout.alignHeader === 'center';
   const isRight = layout.alignHeader === 'right';
-  const headerX = isCenter ? pageWidth / 2 : isRight ? pageWidth - margin - 6 : textStartX;
+  const headerX = isCenter ? pageWidth / 2 : isRight ? textRightReserve : textStartX;
+  const headerAlign: 'left' | 'center' | 'right' = isCenter ? 'center' : isRight ? 'right' : 'left';
+  const companyTitleTop = logoPos === 'center' && layout.showLogo && settings.logoDataUrl ? margin + 21 : margin + 10;
 
-  // Company Name & Details
-  doc.setTextColor(0, 0, 0); // Black #000000
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(15);
-  doc.text(sanitizePdfText(settings.companyName || 'Corporate Enterprise Ltd.'), headerX, margin + 9, { align: isCenter ? 'center' : isRight ? 'right' : 'left' });
+  doc.setTextColor(0, 0, 0);
+  doc.setFont(pdfFont, 'bold');
+  doc.setFontSize(headerFontSize);
+  doc.text(sanitizePdfText(settings.companyName || 'Corporate Enterprise Ltd.'), headerX, companyTitleTop, {
+    align: headerAlign,
+  });
 
-  doc.setFont('helvetica', 'normal');
-  doc.setFontSize(8);
+  doc.setFont(pdfFont, 'normal');
+  doc.setFontSize(Math.max(7, bodyFontSize));
   doc.setTextColor(80, 80, 80);
-  const addr = [
-    settings.addressLine1,
-    settings.addressLine2,
-    settings.cityStateZip
-  ].filter(Boolean).map(sanitizePdfText).join(', ');
+
+  const addr = [settings.addressLine1, settings.addressLine2, settings.cityStateZip]
+    .filter(Boolean)
+    .map(sanitizePdfText)
+    .join(', ');
   if (addr) {
-    doc.text(addr, headerX, margin + 14, { align: isCenter ? 'center' : isRight ? 'right' : 'left' });
+    doc.text(addr, headerX, companyTitleTop + 5, { align: headerAlign });
   }
 
   const contact = [
     settings.email ? `Email: ${settings.email}` : '',
     settings.phone ? `Phone: ${settings.phone}` : '',
-    settings.website ? `Web: ${settings.website}` : ''
-  ].filter(Boolean).map(sanitizePdfText).join('  |  ');
-  if (contact) {
-    doc.text(contact, headerX, margin + 19, { align: isCenter ? 'center' : isRight ? 'right' : 'left' });
+    settings.website ? `Web: ${settings.website}` : '',
+  ]
+    .filter(Boolean)
+    .map(sanitizePdfText)
+    .join('  |  ');
+  if (contact && logoPos !== 'center') {
+    doc.text(contact, headerX, companyTitleTop + 9.5, { align: headerAlign });
   }
 
-  if (layout.showTaxId && settings.taxRegistrationNumber) {
-    doc.text(sanitizePdfText(`Registration / Tax ID: ${settings.taxRegistrationNumber}`), headerX, margin + 24, { align: isCenter ? 'center' : isRight ? 'right' : 'left' });
+  if (layout.showTaxId && settings.taxRegistrationNumber && logoPos !== 'center') {
+    doc.text(sanitizePdfText(`Registration / Tax ID: ${settings.taxRegistrationNumber}`), headerX, companyTitleTop + 14, {
+      align: headerAlign,
+    });
   }
 
-  // Title Banner: Primary Accent Color
-  const titleY = margin + 37;
+  // Title Banner
   doc.setFillColor(primaryR, primaryG, primaryB);
-  doc.rect(margin, margin + 32, contentWidth, 10, 'F');
-  doc.setTextColor(255, 255, 255); // #FFFFFF White
-  doc.setFont('helvetica', 'bold');
+  doc.rect(margin, margin + headerBoxH, contentWidth, 10, 'F');
+  doc.setTextColor(255, 255, 255);
+  doc.setFont(pdfFont, 'bold');
   doc.setFontSize(10);
-  const payPeriodText = sanitizePdfText(`PAYSLIP FOR THE PERIOD: ${month.toUpperCase()} ${year}`);
-  doc.text(payPeriodText, pageWidth / 2, titleY - 0.5, { align: 'center' });
-
-  // Employee Information Grid with dynamic text wrapping, bank details, ESI, and custom layout labels
-  const allEmpFields: Array<{ label: string; val: string }> = [];
-
-  const addEmpField = (show: boolean | undefined, label: string, val: any) => {
-    if (show === false) return;
-    const strVal = val !== undefined && val !== null && String(val).trim() !== '' ? String(val).trim() : '—';
-    allEmpFields.push({ label, val: strVal });
-  };
-
-  addEmpField(layout.showEmployeeId, layout.labelEmployeeId || 'Employee ID', record.employeeId);
-  addEmpField(layout.showName, layout.labelName || 'Employee Name', record.name);
-  addEmpField(layout.showDepartment, layout.labelDepartment || 'Department', record.department);
-  addEmpField(layout.showDesignation, layout.labelDesignation || 'Designation', record.designation);
-  addEmpField(layout.showJoiningDate, layout.labelJoiningDate || 'Joining Date', record.joiningDate);
-
-  // Attendance
-  if (layout.showTotalWorkingDays && record.totalWorkingDays !== undefined) {
-    addEmpField(true, layout.labelTotalWorkingDays || 'Total Working Days', `${record.totalWorkingDays} Days`);
-  }
-  addEmpField(layout.showPaidDays, layout.labelPaidDays || 'Paid Days', `${record.paidDays ?? getDaysInMonth(year, month)} Days`);
-
-  if (layout.showLopDays !== false && record.lopDays !== undefined && record.lopDays > 0) {
-    addEmpField(true, layout.labelLopDays || 'LOP Days', `${record.lopDays} Days`);
-  } else if (layout.showUnpaidDays !== false) {
-    addEmpField(true, layout.labelUnpaidDays || 'Loss of Pay (LOP)', `${record.unpaidDays ?? record.lopDays ?? 0} Days`);
-  }
-
-  // Statutory & Identifiers
-  addEmpField(layout.showPan, layout.labelPan || 'PAN', record.pan);
-  addEmpField(layout.showUan, layout.labelUan || 'UAN', record.uan);
-  addEmpField(layout.showEsiNumber, layout.labelEsiNumber || 'ESI Number', record.esiNumber);
-  if (layout.showPfNumber && record.pfNumber) {
-    addEmpField(true, layout.labelPfNumber || 'PF Number', record.pfNumber);
-  }
-  if (layout.showAadhaar && record.aadhaarNumber) {
-    addEmpField(true, layout.labelAadhaar || 'Aadhaar Number', record.aadhaarNumber);
-  }
-
-  // Bank Details
-  addEmpField(layout.showBankName, layout.labelBankName || 'Bank Name', record.bankName);
-  addEmpField(layout.showBankAccount, layout.labelBankAccount || 'Bank Account No', record.bankAccount);
-  addEmpField(layout.showIfscCode, layout.labelIfscCode || 'IFSC Code', record.ifscCode);
-  if (layout.showBranchName && record.branchName) {
-    addEmpField(true, layout.labelBranchName || 'Branch Name', record.branchName);
-  }
-  if (layout.showAccountHolderName && record.accountHolderName) {
-    addEmpField(true, layout.labelAccountHolderName || 'Account Holder Name', record.accountHolderName);
-  }
-
-  if (layout.showCtc !== false && record.ctc !== undefined) {
-    const ctcStr = formatMoney(record.ctc, settings.currencySymbol, settings.showCurrencySymbol !== false);
-    addEmpField(true, layout.labelCtc || 'Cost to Company (CTC)', ctcStr);
-  }
-
-  if (layout.showEmployerEsi !== false && record.employerEsi !== undefined && record.employerEsi > 0) {
-    const esiStr = formatMoney(record.employerEsi, settings.currencySymbol, settings.showCurrencySymbol !== false);
-    addEmpField(true, layout.labelEmployerEsi || 'Employer ESI', esiStr);
-  }
-
-  // Custom Fields (Employee section)
-  if (record.customFields && typeof record.customFields === 'object') {
-    const customLayouts = layout.customFieldLayouts || [];
-    const seenCustomKeys = new Set<string>();
-    Object.entries(record.customFields).forEach(([key, val]) => {
-      const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (seenCustomKeys.has(normKey)) return;
-      seenCustomKeys.add(normKey);
-
-      const cfg = customLayouts.find(c => c.key === key || c.key.toLowerCase().replace(/[^a-z0-9]/g, '') === normKey);
-      if (cfg && cfg.showInPdf === false) return; // explicit hide
-      const fieldLabel = cfg?.label || key.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-      // Skip if this is a purely financial/allowance custom field displayed in salary tables
-      const lowerKey = key.toLowerCase();
-      if (typeof val === 'number' && (
-        lowerKey.includes('allowance') ||
-        lowerKey.includes('deduction') ||
-        lowerKey.includes('loan') ||
-        lowerKey.includes('advance') ||
-        lowerKey.includes('pf') ||
-        lowerKey.includes('esi') ||
-        lowerKey.includes('tax') ||
-        lowerKey.includes('tds') ||
-        lowerKey.includes('lop') ||
-        lowerKey.includes('late') ||
-        lowerKey.includes('basic') ||
-        lowerKey.includes('hra') ||
-        lowerKey.includes('gross') ||
-        lowerKey.includes('net') ||
-        lowerKey.includes('ctc')
-      )) {
-        return;
-      }
-      addEmpField(true, fieldLabel, val);
-    });
-  }
-
-  const empPairs: { label1: string; val1: string; label2: string; val2: string }[] = [];
-  for (let i = 0; i < allEmpFields.length; i += 2) {
-    const f1 = allEmpFields[i];
-    const f2 = allEmpFields[i + 1];
-    empPairs.push({
-      label1: f1 ? f1.label : '',
-      val1: f1 ? f1.val : '',
-      label2: f2 ? f2.label : '',
-      val2: f2 ? f2.val : ''
-    });
-  }
-
-  let gridY = margin + 44;
-  const rowH = 5.2;
-  const gridHeight = Math.max(26, empPairs.length * rowH + 6);
-  doc.setFillColor(248, 248, 250);
-  doc.rect(margin + 2, gridY, contentWidth - 4, gridHeight, 'F');
-  doc.setDrawColor(225, 225, 230);
-  doc.rect(margin + 2, gridY, contentWidth - 4, gridHeight);
-
-  const col1X = margin + 5;
-  const val1X = margin + 44;
-  const col2X = margin + 96;
-  const val2X = margin + 137;
-  const maxColWidth = 48;
-
-  let currentY = gridY + 5;
-  empPairs.forEach(pair => {
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8);
-    doc.setTextColor(80, 80, 80);
-    doc.text(pair.label1, col1X, currentY);
-    if (pair.label2) {
-      doc.text(pair.label2, col2X, currentY);
-    }
-
-    doc.setFont('helvetica', 'normal');
-    doc.setTextColor(0, 0, 0); // Black #000000
-
-    const safeVal1 = sanitizePdfText(pair.val1);
-    const lines1 = doc.splitTextToSize(safeVal1, maxColWidth);
-    doc.text(lines1, val1X, currentY);
-
-    let maxLines = lines1.length;
-    if (pair.label2) {
-      const safeVal2 = sanitizePdfText(pair.val2);
-      const lines2 = doc.splitTextToSize(safeVal2, maxColWidth);
-      doc.text(lines2, val2X, currentY);
-      maxLines = Math.max(maxLines, lines2.length);
-    }
-
-    currentY += maxLines * rowH;
+  doc.text(sanitizePdfText(`PAYSLIP FOR THE PERIOD: ${month.toUpperCase()} ${year}`), pageWidth / 2, margin + headerBoxH + 6.5, {
+    align: 'center',
   });
 
-  // Salary Breakdown Table (Earnings vs Deductions)
-  const tableY = gridY + gridHeight + 6;
-  const colWidth = (contentWidth - 4) / 2;
-  const leftX = margin + 2;
-  const rightX = leftX + colWidth;
+  let cursorY = margin + headerBoxH + 14;
 
-  // Table Headers
-  doc.setFillColor(245, 245, 247);
-  doc.rect(leftX, tableY, colWidth, 7, 'F');
-  doc.rect(rightX, tableY, colWidth, 7, 'F');
-
-  doc.setDrawColor(215, 215, 220);
-  doc.rect(leftX, tableY, colWidth, 7);
-  doc.rect(rightX, tableY, colWidth, 7);
-
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(0, 0, 0); // Black #000000
-  doc.text(sanitizePdfText(layout.labelEarnings || 'EARNINGS'), leftX + 4, tableY + 5);
-  doc.text('AMOUNT', leftX + colWidth - 4, tableY + 5, { align: 'right' });
-
-  doc.text(sanitizePdfText(layout.labelDeductions || 'DEDUCTIONS'), rightX + 4, tableY + 5);
-  doc.text('AMOUNT', rightX + colWidth - 4, tableY + 5, { align: 'right' });
-
-  // Rows of Earnings and Deductions
-  const earnings: Array<{ label: string; amount: number }> = [
-    layout.showBasic !== false ? { label: layout.labelBasic || 'Basic Salary', amount: record.basic } : null,
-    layout.showHra !== false ? { label: layout.labelHra || 'HRA', amount: record.hra } : null,
-    layout.showSpecialAllowance !== false ? { label: layout.labelSpecialAllowance || 'Special Allowance', amount: record.specialAllowance || 0 } : null,
-    layout.showOtherAllowances !== false ? { label: layout.labelOtherAllowances || 'Other Allowances', amount: record.otherAllowances || 0 } : null,
-    record.conveyance ? { label: 'Conveyance Allowance', amount: record.conveyance } : null,
-    record.medicalAllowance ? { label: 'Medical Allowance', amount: record.medicalAllowance } : null,
-  ].filter(Boolean) as { label: string; amount: number }[];
-
-  // Custom Allowances
-  if (record.customFields) {
-    const seenEarnKeys = new Set<string>();
-    Object.entries(record.customFields).forEach(([key, val]) => {
-      const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-      if (seenEarnKeys.has(normKey)) return;
-      seenEarnKeys.add(normKey);
-      if (typeof val === 'number' && key.toLowerCase().includes('allowance')) {
-        const label = key.replace(/[_-]/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
-        earnings.push({ label, amount: val });
-      }
+  const renderCustomBlocks = (slot: 'afterEmployeeInfo' | 'afterNetPay' | 'footer') => {
+    const blocks = (layout.customTextBlocks || []).filter((b) => b.visible !== false && b.position === slot && b.content?.trim());
+    blocks.forEach((blk) => {
+      const wrapped = doc.splitTextToSize(sanitizePdfText(blk.content), contentWidth - 10);
+      const boxH = 8 + wrapped.length * 4;
+      cursorY = ensureSpace(cursorY, boxH + 4);
+      doc.setFillColor(248, 248, 250);
+      doc.setDrawColor(225, 225, 230);
+      doc.rect(margin + 2, cursorY, contentWidth - 4, boxH, 'FD');
+      doc.setFont(pdfFont, 'bold');
+      doc.setFontSize(bodyFontSize);
+      doc.setTextColor(primaryR, primaryG, primaryB);
+      doc.text(sanitizePdfText(blk.title || 'Notice'), margin + 5, cursorY + 4.5);
+      doc.setFont(pdfFont, 'normal');
+      doc.setTextColor(40, 40, 45);
+      doc.text(wrapped, margin + 5, cursorY + 8.5);
+      cursorY += boxH + 4;
     });
-  }
+  };
 
-  const deductions: Array<{ label: string; amount: number }> = [
-    layout.showPf !== false ? { label: layout.labelPf || 'Provident Fund (EPF)', amount: record.pf } : null,
-    layout.showEsi !== false ? { label: layout.labelEsi || 'ESI', amount: record.esi } : null,
-    layout.showProfessionalTax !== false ? { label: layout.labelProfessionalTax || 'Professional Tax', amount: record.professionalTax } : null,
-    layout.showTds !== false ? { label: layout.labelTds || 'TDS / Income Tax', amount: record.tds } : null,
-    (layout.showLoan !== false && record.loan && record.loan > 0)
-      ? { label: layout.labelLoan || 'Staff Loan / Advance', amount: record.loan }
-      : null,
-    (layout.showLateDeduction !== false && record.lateDeduction && record.lateDeduction > 0)
-      ? { label: layout.labelLateDeduction || 'Late Deduction', amount: record.lateDeduction }
-      : null,
-    // Explicit LOP Deduction if provided (supports both lopAmount and lopDeduction)
-    (layout.showLopAmount !== false && Number(record.lopAmount || record.lopDeduction || 0) > 0)
-      ? { label: layout.labelLopAmount || 'Loss of Pay (LOP) Deduction', amount: Number(record.lopAmount || record.lopDeduction || 0) }
-      : null,
-    layout.showOtherDeductions !== false ? { label: layout.labelOtherDeductions || 'Other Deductions', amount: record.otherDeductions || 0 } : null,
-  ].filter(Boolean) as { label: string; amount: number }[];
-
-  const maxRows = Math.max(earnings.length, deductions.length);
-  const rowHeight = 7.5;
-  let rowY = tableY + 7;
-
-  doc.setFontSize(8);
-
-  for (let i = 0; i < maxRows; i++) {
-    // Alternating zebra stripe
-    if (i % 2 === 1) {
-      doc.setFillColor(248, 250, 252);
-      doc.rect(leftX, rowY, colWidth, rowHeight, 'F');
-      doc.rect(rightX, rowY, colWidth, rowHeight, 'F');
+  const renderEmployeeInfoSection = () => {
+    const infoItems = resolvedData.infoFields;
+    const empPairs: Array<{
+      f1: (typeof infoItems)[number] | null;
+      f2: (typeof infoItems)[number] | null;
+    }> = [];
+    for (let i = 0; i < infoItems.length; i += 2) {
+      empPairs.push({
+        f1: infoItems[i] || null,
+        f2: infoItems[i + 1] || null,
+      });
     }
 
-    doc.setDrawColor(226, 232, 240);
-    doc.line(leftX, rowY + rowHeight, leftX + colWidth, rowY + rowHeight);
-    doc.line(rightX, rowY + rowHeight, rightX + colWidth, rowY + rowHeight);
+    const halfW = (contentWidth - 4) / 2;
+    const col1X = margin + 5;
+    const val1X = margin + Math.min(44, halfW * 0.44);
+    const col2X = margin + 4 + halfW + 2;
+    const val2X = margin + 4 + halfW + Math.min(43, halfW * 0.44);
+    const maxColWidth = Math.max(32, halfW - (val1X - col1X) - 4);
 
-    // Earnings cell
-    const earn = earnings[i];
-    if (earn) {
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(51, 65, 85);
-      doc.text(sanitizePdfText(earn.label), leftX + 4, rowY + 5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(15, 23, 42);
-      doc.text(formatMoney(earn.amount, settings.currencySymbol, showSymbol), leftX + colWidth - 4, rowY + 5, { align: 'right' });
+    const rowH = layout.cellPadding === 'compact' ? 4.4 : layout.cellPadding === 'spacious' ? 6.0 : 5.2;
+    doc.setFontSize(bodyFontSize);
+    const computedHeights = empPairs.map((pair) => {
+      const lines1 = pair.f1 ? doc.splitTextToSize(sanitizePdfText(pair.f1.displayValue), maxColWidth) : [];
+      const lines2 = pair.f2 ? doc.splitTextToSize(sanitizePdfText(pair.f2.displayValue), maxColWidth) : [];
+      return Math.max(lines1.length, lines2.length, 1) * rowH;
+    });
+    const gridHeight = Math.max(20, computedHeights.reduce((a, b) => a + b, 0) + 6);
+    cursorY = ensureSpace(cursorY, gridHeight + 4);
+
+    doc.setFillColor(248, 248, 250);
+    doc.rect(margin + 2, cursorY, contentWidth - 4, gridHeight, 'F');
+    doc.setDrawColor(225, 225, 230);
+    doc.rect(margin + 2, cursorY, contentWidth - 4, gridHeight);
+
+    let currentY = cursorY + 5;
+    empPairs.forEach((pair, idx) => {
+      if (pair.f1) {
+        const cfg1 = pair.f1.styleConfig;
+        const itemFont1 = cfg1.fontFamily && cfg1.fontFamily !== 'inherit' ? resolvePdfFont(cfg1.fontFamily) : pdfFont;
+        const itemSize1 = cfg1.fontSize ? Math.max(6.5, Math.min(11, cfg1.fontSize)) : bodyFontSize;
+        doc.setFont(itemFont1, 'bold');
+        doc.setFontSize(itemSize1);
+        doc.setTextColor(80, 80, 80);
+        doc.text(sanitizePdfText(pair.f1.label), col1X, currentY);
+
+        if (cfg1.textColor) {
+          const [tr, tg, tb] = hexToRgb(cfg1.textColor);
+          doc.setTextColor(tr, tg, tb);
+        } else {
+          doc.setTextColor(0, 0, 0);
+        }
+        doc.setFont(itemFont1, cfg1.fontWeight === 'bold' ? 'bold' : 'normal');
+        const lines1 = doc.splitTextToSize(sanitizePdfText(pair.f1.displayValue), maxColWidth);
+        doc.text(lines1, val1X, currentY);
+      }
+
+      if (pair.f2) {
+        const cfg2 = pair.f2.styleConfig;
+        const itemFont2 = cfg2.fontFamily && cfg2.fontFamily !== 'inherit' ? resolvePdfFont(cfg2.fontFamily) : pdfFont;
+        const itemSize2 = cfg2.fontSize ? Math.max(6.5, Math.min(11, cfg2.fontSize)) : bodyFontSize;
+        doc.setFont(itemFont2, 'bold');
+        doc.setFontSize(itemSize2);
+        doc.setTextColor(80, 80, 80);
+        doc.text(sanitizePdfText(pair.f2.label), col2X, currentY);
+
+        if (cfg2.textColor) {
+          const [tr, tg, tb] = hexToRgb(cfg2.textColor);
+          doc.setTextColor(tr, tg, tb);
+        } else {
+          doc.setTextColor(0, 0, 0);
+        }
+        doc.setFont(itemFont2, cfg2.fontWeight === 'bold' ? 'bold' : 'normal');
+        const lines2 = doc.splitTextToSize(sanitizePdfText(pair.f2.displayValue), maxColWidth);
+        doc.text(lines2, val2X, currentY);
+      }
+      currentY += computedHeights[idx];
+    });
+
+    cursorY += gridHeight + 6;
+    renderCustomBlocks('afterEmployeeInfo');
+  };
+
+  const renderSalaryTableSection = () => {
+    const colWidth = (contentWidth - 4) / 2;
+    const leftX = margin + 2;
+    const rightX = leftX + colWidth;
+    const borderMode = layout.tableBorderStyle || 'grid';
+    const rowHeight = layout.cellPadding === 'compact' ? 6.2 : layout.cellPadding === 'spacious' ? 9.0 : 7.5;
+
+    const earnings = resolvedData.earningRows;
+    const deductions = resolvedData.deductionRows;
+
+    const maxRows = Math.max(earnings.length, deductions.length, 1);
+    const totalNeeded = 7 + maxRows * rowHeight + 12;
+    cursorY = ensureSpace(cursorY, Math.min(totalNeeded, 70));
+
+    // Table Headers
+    doc.setFillColor(245, 245, 247);
+    doc.rect(leftX, cursorY, colWidth, 7, 'F');
+    doc.rect(rightX, cursorY, colWidth, 7, 'F');
+
+    doc.setDrawColor(215, 215, 220);
+    if (borderMode === 'grid') {
+      doc.rect(leftX, cursorY, colWidth, 7);
+      doc.rect(rightX, cursorY, colWidth, 7);
+    } else {
+      doc.line(leftX, cursorY + 7, rightX + colWidth, cursorY + 7);
     }
 
-    // Deductions cell
-    const ded = deductions[i];
-    if (ded) {
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(51, 65, 85);
-      doc.text(sanitizePdfText(ded.label), rightX + 4, rowY + 5);
-      doc.setFont('helvetica', 'bold');
-      doc.setTextColor(15, 23, 42);
-      doc.text(formatMoney(ded.amount, settings.currencySymbol, showSymbol), rightX + colWidth - 4, rowY + 5, { align: 'right' });
+    doc.setFont(pdfFont, 'bold');
+    doc.setFontSize(bodyFontSize + 0.5);
+    doc.setTextColor(0, 0, 0);
+    doc.text(sanitizePdfText(layout.labelEarnings || 'EARNINGS'), leftX + 4, cursorY + 5);
+    doc.text('AMOUNT', leftX + colWidth - 4, cursorY + 5, { align: 'right' });
+
+    doc.text(sanitizePdfText(layout.labelDeductions || 'DEDUCTIONS'), rightX + 4, cursorY + 5);
+    doc.text('AMOUNT', rightX + colWidth - 4, cursorY + 5, { align: 'right' });
+
+    let rowY = cursorY + 7;
+    doc.setFontSize(bodyFontSize);
+
+    for (let i = 0; i < maxRows; i++) {
+      rowY = ensureSpace(rowY, rowHeight + 2);
+      if (i % 2 === 1) {
+        doc.setFillColor(248, 250, 252);
+        doc.rect(leftX, rowY, colWidth, rowHeight, 'F');
+        doc.rect(rightX, rowY, colWidth, rowHeight, 'F');
+      }
+
+      if (borderMode !== 'minimal') {
+        doc.setDrawColor(226, 232, 240);
+        doc.line(leftX, rowY + rowHeight, leftX + colWidth, rowY + rowHeight);
+        doc.line(rightX, rowY + rowHeight, rightX + colWidth, rowY + rowHeight);
+        if (borderMode === 'grid') {
+          doc.line(leftX, rowY, leftX, rowY + rowHeight);
+          doc.line(rightX, rowY, rightX, rowY + rowHeight);
+          doc.line(rightX + colWidth, rowY, rightX + colWidth, rowY + rowHeight);
+        }
+      }
+
+      const textBaseline = rowY + rowHeight * 0.66;
+      const earn = earnings[i];
+      if (earn) {
+        const cfg = earn.styleConfig;
+        const itemFont = cfg.fontFamily && cfg.fontFamily !== 'inherit' ? resolvePdfFont(cfg.fontFamily) : pdfFont;
+        doc.setFont(itemFont, 'normal');
+        doc.setTextColor(51, 65, 85);
+        doc.text(sanitizePdfText(earn.label), leftX + 4, textBaseline);
+        doc.setFont(itemFont, 'bold');
+        if (cfg.textColor) {
+          const [tr, tg, tb] = hexToRgb(cfg.textColor);
+          doc.setTextColor(tr, tg, tb);
+        } else {
+          doc.setTextColor(15, 23, 42);
+        }
+        doc.text(sanitizePdfText(earn.displayValue), leftX + colWidth - 4, textBaseline, { align: 'right' });
+      }
+
+      const ded = deductions[i];
+      if (ded) {
+        const cfg = ded.styleConfig;
+        const itemFont = cfg.fontFamily && cfg.fontFamily !== 'inherit' ? resolvePdfFont(cfg.fontFamily) : pdfFont;
+        doc.setFont(itemFont, 'normal');
+        doc.setTextColor(51, 65, 85);
+        doc.text(sanitizePdfText(ded.label), rightX + 4, textBaseline);
+        doc.setFont(itemFont, 'bold');
+        if (cfg.textColor) {
+          const [tr, tg, tb] = hexToRgb(cfg.textColor);
+          doc.setTextColor(tr, tg, tb);
+        } else {
+          doc.setTextColor(15, 23, 42);
+        }
+        doc.text(sanitizePdfText(ded.displayValue), rightX + colWidth - 4, textBaseline, { align: 'right' });
+      }
+
+      rowY += rowHeight;
     }
 
-    rowY += rowHeight;
-  }
+    // Totals Row
+    rowY = ensureSpace(rowY, 12);
+    doc.setFillColor(245, 245, 247);
+    doc.rect(leftX, rowY, colWidth, 9, 'F');
+    doc.rect(rightX, rowY, colWidth, 9, 'F');
 
-  // Totals Row
-  doc.setFillColor(245, 245, 247);
-  doc.rect(leftX, rowY, colWidth, 9, 'F');
-  doc.rect(rightX, rowY, colWidth, 9, 'F');
+    doc.setDrawColor(215, 215, 220);
+    if (borderMode === 'grid') {
+      doc.rect(leftX, rowY, colWidth, 9);
+      doc.rect(rightX, rowY, colWidth, 9);
+    } else {
+      doc.line(leftX, rowY, rightX + colWidth, rowY);
+      doc.line(leftX, rowY + 9, rightX + colWidth, rowY + 9);
+    }
 
-  doc.setDrawColor(215, 215, 220);
-  doc.rect(leftX, rowY, colWidth, 9);
-  doc.rect(rightX, rowY, colWidth, 9);
+    doc.setFont(pdfFont, 'bold');
+    doc.setFontSize(bodyFontSize + 0.5);
+    doc.setTextColor(0, 0, 0);
+    if (layout.showGrossEarnings !== false) {
+      doc.text(sanitizePdfText(resolvedData.grossTotal.label), leftX + 4, rowY + 6);
+      doc.text(sanitizePdfText(resolvedData.grossTotal.displayValue), leftX + colWidth - 4, rowY + 6, { align: 'right' });
+    }
 
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(8.5);
-  doc.setTextColor(0, 0, 0); // Black #000000
-  doc.text('TOTAL GROSS EARNINGS', leftX + 4, rowY + 6);
-  doc.text(formatMoney(record.calculatedGross, settings.currencySymbol, showSymbol), leftX + colWidth - 4, rowY + 6, { align: 'right' });
+    if (layout.showTotalDeductions !== false) {
+      doc.text(sanitizePdfText(resolvedData.deductionTotal.label), rightX + 4, rowY + 6);
+      doc.setTextColor(primaryR, primaryG, primaryB);
+      doc.text(sanitizePdfText(resolvedData.deductionTotal.displayValue), rightX + colWidth - 4, rowY + 6, { align: 'right' });
+    }
 
-  doc.text('TOTAL DEDUCTIONS', rightX + 4, rowY + 6);
-  doc.setTextColor(primaryR, primaryG, primaryB);
-  doc.text(formatMoney(record.calculatedDeductions, settings.currencySymbol, showSymbol), rightX + colWidth - 4, rowY + 6, { align: 'right' });
+    cursorY = rowY + 14;
+  };
 
-  rowY += 14;
+  const renderNetPaySection = () => {
+    if (layout.showNetSalary === false) return;
+    cursorY = ensureSpace(cursorY, 28);
+    const leftX = margin + 2;
 
-  // NET PAY HIGHLIGHT CARD
-  doc.setFillColor(255, 255, 255); // White #FFFFFF
-  doc.setDrawColor(primaryR, primaryG, primaryB);
-  doc.setLineWidth(0.7);
-  doc.roundedRect(leftX, rowY, contentWidth - 4, 22, 2, 2, 'FD');
+    doc.setFillColor(255, 255, 255);
+    doc.setDrawColor(primaryR, primaryG, primaryB);
+    doc.setLineWidth(0.7);
+    doc.roundedRect(leftX, cursorY, contentWidth - 4, 22, 2, 2, 'FD');
 
-  doc.setTextColor(0, 0, 0); // Black #000000
-  doc.setFont('helvetica', 'bold');
-  doc.setFontSize(9.5);
-  doc.text(sanitizePdfText(layout.labelNetSalary || 'NET SALARY PAYABLE:'), leftX + 6, rowY + 8);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont(pdfFont, 'bold');
+    doc.setFontSize(bodyFontSize + 1.5);
+    doc.text(sanitizePdfText(resolvedData.netPaySummary.label || 'NET SALARY PAYABLE:'), leftX + 6, cursorY + 8);
 
-  doc.setFontSize(14);
-  doc.setTextColor(primaryR, primaryG, primaryB);
-  const netAmountStr = showSymbol ? `${settings.currencySymbol} ${formatMoneyNumber(record.calculatedNet)}` : formatMoneyNumber(record.calculatedNet);
-  const netText = sanitizePdfText(netAmountStr);
-  doc.text(netText, leftX + contentWidth - 10, rowY + 9, { align: 'right' });
+    doc.setFontSize(14);
+    doc.setTextColor(primaryR, primaryG, primaryB);
+    const netAmountStr = formatMoneyDisplay(record.calculatedNet, settings.currencySymbol, showSymbol, true);
+    doc.text(sanitizePdfText(netAmountStr), leftX + contentWidth - 10, cursorY + 9, { align: 'right' });
 
-  // Amount in words
-  doc.setFont('helvetica', 'italic');
-  doc.setFontSize(8.5);
-  doc.setTextColor(40, 40, 40);
-  const words = numberToWords(record.calculatedNet, settings.currencyName || 'USD');
-  doc.text(sanitizePdfText(`In Words: ${words}`), leftX + 6, rowY + 16);
+    doc.setFont(pdfFont, 'italic');
+    doc.setFontSize(bodyFontSize + 0.5);
+    doc.setTextColor(40, 40, 40);
+    const words = numberToWords(record.calculatedNet, settings.currencyName || 'USD');
+    const wrappedWords = doc.splitTextToSize(sanitizePdfText(`In Words: ${words}`), contentWidth - 16);
+    doc.text(wrappedWords[0] || '', leftX + 6, cursorY + 16);
 
-  // Signatures & Notes Section
-  rowY += 32;
+    cursorY += 28;
+    renderCustomBlocks('afterNetPay');
+  };
 
-  // Optional Note
-  if (layout.showFooterNote && settings.payslipNote) {
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(7.5);
-    doc.setTextColor(100, 116, 139);
-    doc.text(sanitizePdfText(`Note: ${settings.payslipNote}`), leftX + 4, rowY);
-    rowY += 8;
-  }
+  const renderNotesSection = () => {
+    if (layout.showFooterNote && settings.payslipNote) {
+      const wrappedNote = doc.splitTextToSize(sanitizePdfText(`Note: ${settings.payslipNote}`), contentWidth - 12);
+      cursorY = ensureSpace(cursorY, wrappedNote.length * 4 + 6);
+      doc.setFont(pdfFont, 'normal');
+      doc.setFontSize(Math.max(7, bodyFontSize - 0.5));
+      doc.setTextColor(100, 116, 139);
+      doc.text(wrappedNote, margin + 6, cursorY);
+      cursorY += wrappedNote.length * 4 + 6;
+    }
+    renderCustomBlocks('footer');
+  };
 
-  // Signatures
-  if (layout.showSignatures) {
-    const sigY = pageHeight - margin - 28;
-    const sigLeftX = leftX + 15;
-    const sigRightX = pageWidth - margin - 55;
+  const renderSignaturesSection = () => {
+    if (!layout.showSignatures) return;
+    cursorY = ensureSpace(cursorY, 26);
+    const sigY = Math.max(cursorY + 14, pageHeight - margin - 26);
+    const sigLeftX = margin + 17;
+    const sigRightX = pageWidth - margin - 57;
 
     doc.setDrawColor(148, 163, 184);
     doc.setLineWidth(0.3);
     doc.line(sigLeftX, sigY, sigLeftX + 45, sigY);
     doc.line(sigRightX, sigY, sigRightX + 45, sigY);
 
-    doc.setFont('helvetica', 'normal');
-    doc.setFontSize(8);
+    doc.setFont(pdfFont, 'normal');
+    doc.setFontSize(bodyFontSize);
     doc.setTextColor(71, 85, 105);
     doc.text('Employee Signature', sigLeftX + 5, sigY + 5);
 
-    if (settings.signatureDataUrl && typeof settings.signatureDataUrl === 'string' && settings.signatureDataUrl.startsWith('data:image/')) {
+    if (
+      settings.signatureDataUrl &&
+      typeof settings.signatureDataUrl === 'string' &&
+      settings.signatureDataUrl.startsWith('data:image/')
+    ) {
       try {
         let sigFormat = 'PNG';
         if (settings.signatureDataUrl.toLowerCase().includes('image/jpeg')) sigFormat = 'JPEG';
         doc.addImage(settings.signatureDataUrl, sigFormat, sigRightX + 5, sigY - 14, 35, 12);
-      } catch {
-        // ignore
-      }
+      } catch {}
     }
 
     doc.text(sanitizePdfText(settings.authorizedSignatoryTitle || 'Authorized Signatory'), sigRightX + 4, sigY + 5);
     if (settings.authorizedSignatoryName) {
-      doc.setFont('helvetica', 'bold');
+      doc.setFont(pdfFont, 'bold');
       doc.text(sanitizePdfText(settings.authorizedSignatoryName), sigRightX + 4, sigY + 9);
+    }
+    cursorY = sigY + 12;
+  };
+
+  const defaultOrder: Array<'employeeInfo' | 'salaryTable' | 'netPay' | 'notes' | 'signatures'> = [
+    'employeeInfo',
+    'salaryTable',
+    'netPay',
+    'notes',
+    'signatures',
+  ];
+  const order = Array.isArray(layout.sectionOrder) && layout.sectionOrder.length > 0 ? layout.sectionOrder : defaultOrder;
+  const rendered = new Set<string>();
+
+  for (const section of order) {
+    if (rendered.has(section)) continue;
+    rendered.add(section);
+    if (section === 'employeeInfo') renderEmployeeInfoSection();
+    else if (section === 'salaryTable') renderSalaryTableSection();
+    else if (section === 'netPay') renderNetPaySection();
+    else if (section === 'notes') renderNotesSection();
+    else if (section === 'signatures') renderSignaturesSection();
+  }
+
+  for (const fallback of defaultOrder) {
+    if (!rendered.has(fallback)) {
+      if (fallback === 'employeeInfo') renderEmployeeInfoSection();
+      else if (fallback === 'salaryTable') renderSalaryTableSection();
+      else if (fallback === 'netPay') renderNetPaySection();
+      else if (fallback === 'notes') renderNotesSection();
+      else if (fallback === 'signatures') renderSignaturesSection();
     }
   }
 
-  // Footer text
   if (layout.showFooterNote) {
     const footerY = pageHeight - margin - 4;
-    doc.setFont('helvetica', 'normal');
+    doc.setFont(pdfFont, 'normal');
     doc.setFontSize(7);
     doc.setTextColor(148, 163, 184);
-    doc.text('This is a computer-generated payslip created securely with Employee Database Studio. No signature required unless specified.', pageWidth / 2, footerY, { align: 'center' });
+    doc.text(
+      'This is a computer-generated payslip created securely with Employee Database Studio. No signature required unless specified.',
+      pageWidth / 2,
+      footerY,
+      { align: 'center' }
+    );
   }
 
   return doc;
@@ -555,9 +606,8 @@ export async function generateBulkPayslipsZip(
 
     folder.file(fileName, pdfBlob);
 
-    // Yield back to event loop slightly so UI progress updates smoothly
     if (i % 3 === 0) {
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
     }
   }
 

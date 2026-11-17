@@ -3,15 +3,6 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import http from 'node:http';
-import jwt from 'jsonwebtoken';
-import {
-  resolvePostgresConnection,
-  normalizePostgresConfig,
-  query,
-  DatabaseError,
-  resetPoolForTesting,
-} from './db/pool';
-import { getJwtSecret, AuthConfigError } from './middleware/auth';
 import { app } from '../../server';
 
 function startTestServer(): Promise<{ server: http.Server; baseUrl: string }> {
@@ -23,146 +14,6 @@ function startTestServer(): Promise<{ server: http.Server; baseUrl: string }> {
     });
   });
 }
-
-test('PostgreSQL connection resolution supports DATABASE_URL, POSTGRES_URL, and POSTGRES_URL_NON_POOLING', () => {
-  const prevDb = process.env.DATABASE_URL;
-  const prevPg = process.env.POSTGRES_URL;
-  const prevNonPool = process.env.POSTGRES_URL_NON_POOLING;
-
-  try {
-    delete process.env.DATABASE_URL;
-    process.env.POSTGRES_URL = 'postgresql://user:pass@pooler.supabase.com:6543/postgres?sslmode=require';
-    process.env.POSTGRES_URL_NON_POOLING = 'postgresql://user:pass@db.supabase.co:5432/postgres?sslmode=require';
-
-    const runtimeConn = resolvePostgresConnection('runtime');
-    assert.equal(runtimeConn.sourceVar, 'POSTGRES_URL');
-    assert.ok(runtimeConn.connectionString.includes('6543'));
-
-    const migrationConn = resolvePostgresConnection('migration');
-    assert.equal(migrationConn.sourceVar, 'POSTGRES_URL_NON_POOLING');
-    assert.ok(migrationConn.connectionString.includes('5432'));
-
-    process.env.DATABASE_URL = 'postgresql://user:pass@custom-pooler.supabase.com:6543/postgres?sslmode=require';
-    const overrideConn = resolvePostgresConnection('runtime');
-    assert.equal(overrideConn.sourceVar, 'DATABASE_URL');
-  } finally {
-    if (prevDb !== undefined) process.env.DATABASE_URL = prevDb;
-    else delete process.env.DATABASE_URL;
-    if (prevPg !== undefined) process.env.POSTGRES_URL = prevPg;
-    else delete process.env.POSTGRES_URL;
-    if (prevNonPool !== undefined) process.env.POSTGRES_URL_NON_POOLING = prevNonPool;
-    else delete process.env.POSTGRES_URL_NON_POOLING;
-  }
-});
-
-test('PostgreSQL SSL normalization prevents pg v8 ?sslmode=require override while honoring verify-full', () => {
-  const supaPooler = normalizePostgresConfig(
-    'postgresql://postgres.proj:secret@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require&pgbouncer=true'
-  );
-  assert.equal(supaPooler.isLocalHost, false);
-  assert.equal(supaPooler.sslModeNormalized, true);
-  assert.deepEqual(supaPooler.ssl, { rejectUnauthorized: false });
-  assert.ok(!supaPooler.connectionString.includes('sslmode=require'));
-  assert.ok(supaPooler.connectionString.includes('pgbouncer=true'));
-
-  const strictVerify = normalizePostgresConfig(
-    'postgresql://postgres:secret@db.example.com:5432/postgres?sslmode=verify-full'
-  );
-  assert.deepEqual(strictVerify.ssl, { rejectUnauthorized: true });
-
-  const localDb = normalizePostgresConfig('postgresql://postgres:postgres@localhost:5432/app');
-  assert.equal(localDb.isLocalHost, true);
-  assert.equal(localDb.ssl, undefined);
-
-  // Regression test: surrounding quotes or KEY= prefix must be stripped so pg-connection-string never falls back to hostname 'base'
-  const quoted = normalizePostgresConfig(
-    '"postgresql://postgres:pass@aws-0-ap-south-1.pooler.supabase.com:6543/postgres?sslmode=require"'
-  );
-  assert.equal(quoted.host, 'aws-0-ap-south-1.pooler.supabase.com');
-  assert.deepEqual(quoted.ssl, { rejectUnauthorized: false });
-
-  assert.throws(
-    () => normalizePostgresConfig('base'),
-    (err: any) => err instanceof DatabaseError && err.statusCode === 503
-  );
-  assert.throws(
-    () => normalizePostgresConfig('postgresql://user:pass@base:5432/db'),
-    (err: any) => err instanceof DatabaseError && err.statusCode === 503
-  );
-});
-
-test('Production runtime fails safely with 503 instead of falling back to local JSON when DB env is missing', async () => {
-  const prevVercel = process.env.VERCEL;
-  const prevNodeEnv = process.env.NODE_ENV;
-  const prevDb = process.env.DATABASE_URL;
-  const prevPg = process.env.POSTGRES_URL;
-
-  try {
-    process.env.VERCEL = '1';
-    process.env.NODE_ENV = 'production';
-    delete process.env.DATABASE_URL;
-    delete process.env.POSTGRES_URL;
-    await resetPoolForTesting();
-
-    await assert.rejects(
-      () => query('SELECT 1'),
-      (err: any) => err instanceof DatabaseError && err.statusCode === 503
-    );
-  } finally {
-    if (prevVercel !== undefined) process.env.VERCEL = prevVercel;
-    else delete process.env.VERCEL;
-    if (prevNodeEnv !== undefined) process.env.NODE_ENV = prevNodeEnv;
-    else delete process.env.NODE_ENV;
-    if (prevDb !== undefined) process.env.DATABASE_URL = prevDb;
-    else delete process.env.DATABASE_URL;
-    if (prevPg !== undefined) process.env.POSTGRES_URL = prevPg;
-    else delete process.env.POSTGRES_URL;
-    await resetPoolForTesting();
-  }
-});
-
-test('JWT secret is mandatory in production and throws AuthConfigError (503) when missing', () => {
-  const prevVercel = process.env.VERCEL;
-  const prevNodeEnv = process.env.NODE_ENV;
-  const prevJwt = process.env.JWT_SECRET;
-
-  try {
-    process.env.NODE_ENV = 'production';
-    process.env.VERCEL = '1';
-    delete process.env.JWT_SECRET;
-
-    assert.throws(
-      () => getJwtSecret(),
-      (err: any) => err instanceof AuthConfigError && err.statusCode === 503
-    );
-
-    process.env.JWT_SECRET = 'test_production_jwt_secret_value_123456';
-    assert.equal(getJwtSecret(), 'test_production_jwt_secret_value_123456');
-  } finally {
-    if (prevVercel !== undefined) process.env.VERCEL = prevVercel;
-    else delete process.env.VERCEL;
-    if (prevNodeEnv !== undefined) process.env.NODE_ENV = prevNodeEnv;
-    else delete process.env.NODE_ENV;
-    if (prevJwt !== undefined) process.env.JWT_SECRET = prevJwt;
-    else delete process.env.JWT_SECRET;
-  }
-});
-
-test('Migration 001 SQL is non-destructive, idempotent, and includes brand columns on companies', () => {
-  const migrationPath = path.resolve(process.cwd(), 'migrations', '001_initial_schema.sql');
-  assert.equal(fs.existsSync(migrationPath), true);
-  const sql = fs.readFileSync(migrationPath, 'utf-8');
-  const sqlNoComments = sql.replace(/--.*$/gm, '');
-  const upper = sqlNoComments.toUpperCase();
-
-  assert.equal(upper.includes('DROP TABLE'), false, 'Migration must not drop tables');
-  assert.equal(upper.includes('TRUNCATE'), false, 'Migration must not truncate tables');
-  assert.equal(upper.includes('DELETE FROM'), false, 'Migration must not delete existing rows');
-  assert.ok(sql.includes('schema_migrations'));
-  assert.ok(sql.includes('secondary_color'));
-  assert.ok(sql.includes('accent_color'));
-  assert.ok(sql.includes('brand_colors_json'));
-});
 
 test('Vercel serverless configuration preserves /api/* routes and has catch-all handler', () => {
   const vercelJsonPath = path.resolve(process.cwd(), 'vercel.json');
@@ -177,20 +28,33 @@ test('Vercel serverless configuration preserves /api/* routes and has catch-all 
   assert.equal(fs.existsSync(catchAllPath), true);
 });
 
-test('Frontend code never references SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRET_KEY', () => {
+test('Codebase has zero PostgreSQL, Supabase, legacy JWT, or server client-secret references', () => {
   const srcRoot = path.resolve(process.cwd(), 'src');
-  const violations: string[] = [];
+  const forbiddenPatterns = [
+    'SUPABASE_SERVICE_ROLE_KEY',
+    'SUPABASE_SECRET_KEY',
+    'DATABASE_URL',
+    'POSTGRES_URL',
+    'JWT_SECRET',
+    'GOOGLE_CLIENT_SECRET',
+    'TOKEN_ENCRYPTION_KEY',
+    'peopledesk_auth',
+  ];
+  const violations: Array<{ file: string; token: string }> = [];
 
   function walk(dir: string) {
     for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
       const fullPath = path.join(dir, entry.name);
       if (entry.isDirectory()) {
-        if (entry.name === 'server' || entry.name === 'node_modules') continue;
+        if (entry.name === 'node_modules' || entry.name === 'dist') continue;
         walk(fullPath);
       } else if (/\.(ts|tsx|js|jsx)$/.test(entry.name)) {
+        if (entry.name.endsWith('.test.ts')) continue;
         const content = fs.readFileSync(fullPath, 'utf-8');
-        if (content.includes('SUPABASE_SERVICE_ROLE_KEY') || content.includes('SUPABASE_SECRET_KEY')) {
-          violations.push(fullPath);
+        for (const token of forbiddenPatterns) {
+          if (content.includes(token)) {
+            violations.push({ file: fullPath, token });
+          }
         }
       }
     }
@@ -200,36 +64,43 @@ test('Frontend code never references SUPABASE_SERVICE_ROLE_KEY or SUPABASE_SECRE
   assert.deepEqual(violations, []);
 });
 
-test('Express app health, auth isolation, and storage tenant checks respond cleanly over HTTP', async () => {
+test('Client Google Identity Services module stores access tokens strictly in memory (never in localStorage/sessionStorage/IndexedDB)', () => {
+  const gisPath = path.resolve(process.cwd(), 'src', 'utils', 'googleAuthClient.ts');
+  const source = fs.readFileSync(gisPath, 'utf-8');
+  assert.ok(source.includes('https://accounts.google.com/gsi/client'));
+  // Only WORKSPACE_LINKS_KEY (non-secret IDs/URLs) may be persisted in localStorage
+  const setItemMatches = source.match(/localStorage\.setItem\([^)]+\)/g) || [];
+  for (const match of setItemMatches) {
+    assert.ok(match.includes('WORKSPACE_LINKS_KEY'), `Unexpected localStorage.setItem: ${match}`);
+  }
+  assert.equal(source.includes('sessionStorage.setItem'), false);
+});
+
+test('Express stateless API health and auth-guarded Sheets routes work without external DB connection', async () => {
   const { server, baseUrl } = await startTestServer();
   try {
-    // 1. Health endpoint
     const healthRes = await fetch(`${baseUrl}/api/health`);
     assert.equal(healthRes.status, 200);
     const healthJson: any = await healthRes.json();
+    assert.equal(healthJson.status, 'healthy');
     assert.equal(healthJson.app, 'Employee Database Studio Enterprise Cloud');
-    assert.ok(healthJson.checks?.database);
-    assert.ok(healthJson.checks?.storage);
+    assert.equal(healthJson.checks?.googleSheets?.statelessProxyReady, true);
+    assert.equal(healthJson.checks?.googleDrive?.statelessProxyReady, true);
 
-    // 2. Storage status with valid dev JWT
-    const token = jwt.sign({ id: 1, companyId: 1, username: 'admin', role: 'admin' }, getJwtSecret(), { expiresIn: '1h' });
-    const statusRes = await fetch(`${baseUrl}/api/storage/status`, {
-      headers: { Authorization: `Bearer ${token}` },
+    const employeesRes = await fetch(`${baseUrl}/api/employees`);
+    assert.equal(employeesRes.status, 401);
+    const employeesJson: any = await employeesRes.json();
+    assert.equal(employeesJson.code, 'GOOGLE_AUTH_REQUIRED');
+
+    const settingsRes = await fetch(`${baseUrl}/api/settings`);
+    assert.equal(settingsRes.status, 401);
+
+    const payslipPdfRes = await fetch(`${baseUrl}/api/payroll/save-payslip-pdf`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({}),
     });
-    assert.equal(statusRes.status, 200);
-    const statusJson: any = await statusRes.json();
-    assert.equal(statusJson.accessMode, 'private');
-    assert.deepEqual(statusJson.buckets, ['employee-documents', 'company-assets', 'payslip-pdfs', 'import-files']);
-
-    // 3. Cross-tenant signed-url isolation check (companyId 1 requesting company 999 path)
-    const crossTenantRes = await fetch(`${baseUrl}/api/storage/signed-url?bucket=employee-documents&path=999/test/doc.pdf`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    assert.equal(crossTenantRes.status, 403);
-
-    // 4. Download requires auth or valid HMAC token (no hardcoded fallback secret)
-    const unauthDownload = await fetch(`${baseUrl}/api/storage/download?bucket=employee-documents&path=1/test.pdf`);
-    assert.equal(unauthDownload.status, 401);
+    assert.equal(payslipPdfRes.status, 401);
   } finally {
     await new Promise<void>((resolve) => server.close(() => resolve()));
   }

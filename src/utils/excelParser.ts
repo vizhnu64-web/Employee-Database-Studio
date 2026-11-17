@@ -754,6 +754,7 @@ export function mapRowsToEmployeeRecords(
       pf,
       esi,
       professionalTax,
+      tds,
       otherDeductions,
       providedDeductions,
       providedNet,

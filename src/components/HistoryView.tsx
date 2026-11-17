@@ -7,7 +7,7 @@ import {
   Database,
   AlertCircle
 } from 'lucide-react';
-import { CompanySettings, EmployeeRecord, GeneratedPayslipRecord } from '../types/payroll';
+import { CompanySettings, EmployeeRecord, GeneratedPayslipRecord, PayslipLayoutSettings } from '../types/payroll';
 import { localDB } from '../utils/dbStorage';
 import { generatePayslipPdf } from '../utils/pdfGenerator';
 import { useTheme } from '../context/ThemeContext';
@@ -19,13 +19,15 @@ interface HistoryViewProps {
   onPreviewEmployee: (emp: EmployeeRecord) => void;
   employees: EmployeeRecord[];
   settings: CompanySettings;
+  layoutSettings?: PayslipLayoutSettings;
 }
 
 export const HistoryView: React.FC<HistoryViewProps> = ({
   history,
   onHistoryCleared,
   employees,
-  settings
+  settings,
+  layoutSettings
 }) => {
   const { isDark } = useTheme();
   const [searchTerm, setSearchTerm] = useState('');
@@ -55,26 +57,30 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
   };
 
   const handleDownloadHistoricalPdf = async (record: GeneratedPayslipRecord) => {
-    try {
-      const token = apiClient.getToken();
-      const res = await fetch(`/api/payroll/payslip-pdf/${record.id}`, {
-        headers: token ? { Authorization: `Bearer ${token}` } : {}
-      });
-      if (res.ok) {
-        const data = await res.json();
-        if (data.signedUrl) {
-          const a = document.createElement('a');
-          a.href = data.signedUrl;
-          a.download = record.fileName || 'payslip.pdf';
-          a.target = '_blank';
-          document.body.appendChild(a);
-          a.click();
-          document.body.removeChild(a);
-          return;
+    if (apiClient.getToken() && record.driveFileId) {
+      try {
+        const res = await fetch(
+          `/api/payroll/payslip-pdf/${encodeURIComponent(record.id)}?download=1&driveFileId=${encodeURIComponent(record.driveFileId)}`,
+          { headers: apiClient.getWorkspaceHeaders() }
+        );
+        if (res.ok) {
+          const contentType = res.headers.get('content-type') || '';
+          if (contentType.includes('application/pdf')) {
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = record.fileName || 'payslip.pdf';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+            return;
+          }
         }
+      } catch (e) {
+        console.warn('[Drive] Download fell back to local PDF generation:', e);
       }
-    } catch (e) {
-      console.warn('[Storage] Cloud download fell back to local generation:', e);
     }
 
     const match = employees.find(e => e.employeeId.toLowerCase() === record.employeeId.toLowerCase()) || {
@@ -90,7 +96,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       pf: record.totalDeductions * 0.7,
       esi: 0,
       professionalTax: 200,
-      tds: record.totalDeductions * 0.3 - 200,
+      tds: Math.max(0, record.totalDeductions * 0.3 - 200),
       otherDeductions: 0,
       calculatedDeductions: record.totalDeductions,
       calculatedNet: record.netSalary,
@@ -98,7 +104,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
       issues: []
     };
 
-    const doc = generatePayslipPdf(match, settings, record.month, record.year);
+    const doc = generatePayslipPdf(match, settings, record.month, record.year, layoutSettings);
     doc.save(record.fileName);
   };
 
@@ -151,7 +157,7 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
               <span>Clear Generation History?</span>
             </h3>
             <p className={`text-xs mt-2 ${isDark ? 'text-[#D4D4D8]' : 'text-[#52525B]'}`}>
-              This will remove all <strong className={isDark ? 'text-white' : 'text-black tabular-nums'}>{history.length} audit history records</strong> from the local SQLite / IndexedDB database.
+              This will remove all <strong className={isDark ? 'text-white' : 'text-black tabular-nums'}>{history.length} audit history records</strong> from your temporary local IndexedDB drafts.
             </p>
             <div className="mt-5 flex justify-end space-x-3">
               <button
@@ -253,7 +259,21 @@ export const HistoryView: React.FC<HistoryViewProps> = ({
                       {item.employeeName}
                     </td>
                     <td className={`p-3 font-medium ${isDark ? 'text-[#D4D4D8]' : 'text-[#27272A]'}`}>
-                      {item.month} {item.year}
+                      <div>{item.month} {item.year}</div>
+                      <div className="flex items-center space-x-1.5 mt-0.5">
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded font-semibold ${
+                          item.generationMethod === 'Manual Entry'
+                            ? 'bg-amber-500/10 text-amber-500'
+                            : 'bg-[#CB1417]/10 text-[#CB1417]'
+                        }`}>
+                          {item.generationMethod || 'Bulk Payroll'}
+                        </span>
+                        {item.driveFileId && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded font-semibold bg-emerald-500/10 text-emerald-500">
+                            Drive Saved
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td className={`p-3 font-mono tabular-nums ${isDark ? 'text-[#D4D4D8]' : 'text-[#52525B]'}`}>
                       {settings.currencySymbol} {item.grossEarnings.toLocaleString('en-US', { minimumFractionDigits: 2 })}

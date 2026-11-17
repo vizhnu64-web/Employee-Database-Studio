@@ -1,28 +1,29 @@
 @import "tailwindcss";
+@custom-variant dark (&:where(.dark, .dark *));
 
 :root {
-  /* Central Brand Design Tokens */
-  --brand-primary: #1e3a8a;
-  --brand-primary-hover: #172554;
+  /* Central Brand Design Tokens — High-Contrast Vivid Red Enterprise Palette */
+  --brand-primary: #CB1417;
+  --brand-primary-hover: #A60F12;
   --brand-primary-text: #FFFFFF;
 
-  --brand-secondary: #475569;
-  --brand-secondary-hover: #334155;
+  --brand-secondary: #18181B;
+  --brand-secondary-hover: #27272A;
   --brand-secondary-text: #FFFFFF;
 
-  --brand-accent: #d97706;
+  --brand-accent: #ED1F24;
   --brand-accent-text: #FFFFFF;
 
   /* Button Tokens */
-  --button-primary-bg: #1e3a8a;
+  --button-primary-bg: #CB1417;
   --button-primary-text: #FFFFFF;
-  --button-primary-hover: #172554;
-  --button-primary-border: #1e3a8a;
+  --button-primary-hover: #A60F12;
+  --button-primary-border: #CB1417;
 
-  --button-secondary-bg: #475569;
+  --button-secondary-bg: #18181B;
   --button-secondary-text: #FFFFFF;
-  --button-secondary-hover: #334155;
-  --button-secondary-border: #475569;
+  --button-secondary-hover: #27272A;
+  --button-secondary-border: #27272A;
 
   --button-danger-bg: #dc2626;
   --button-danger-text: #FFFFFF;
@@ -32,17 +33,30 @@
   --button-success-text: #FFFFFF;
 
   --button-outline-bg: transparent;
-  --button-outline-text: #1e3a8a;
-  --button-outline-border: #1e3a8a;
-  --button-outline-hover: rgba(30, 58, 138, 0.1);
+  --button-outline-text: #CB1417;
+  --button-outline-border: #CB1417;
+  --button-outline-hover: rgba(203, 20, 23, 0.08);
 
-  /* Application Surface Tokens */
+  /* Light Mode Default Surface Tokens */
+  --app-background: #F4F4F5;
+  --sidebar-background: #FFFFFF;
+  --header-background: #FFFFFF;
+  --card-background: #FFFFFF;
+  --panel-background: #FAFAFA;
+  --input-background: #FFFFFF;
+  --modal-background: #FFFFFF;
+  --border-color: #E4E4E7;
+  --text-primary: #09090B;
+  --text-secondary: #71717A;
+}
+
+.dark {
   --app-background: #000000;
   --sidebar-background: #09090B;
   --header-background: #0D0D0E;
   --card-background: #0D0D0E;
   --panel-background: #141416;
-  --input-background: #000000;
+  --input-background: #09090B;
   --modal-background: #121214;
   --border-color: #27272A;
   --text-primary: #FFFFFF;
@@ -51,12 +65,16 @@
 
 @layer base {
   body {
-    font-family: 'Inter', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     background-color: var(--app-background);
     color: var(--text-primary);
   }
+}
+
+.font-mono {
+  font-family: 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
 }
 
 .tabular-nums {

@@ -267,3 +267,60 @@ test('flags period mismatch warning when record specifies a different year or mo
   assert.ok(res.issues.some(i => i.field === 'payrollYear' && i.severity === 'warning'));
   assert.ok(res.issues.some(i => i.field === 'payrollMonth' && i.severity === 'warning'));
 });
+
+test('flags warning without mutating when CTC differs from Basic + HRA + Special + Other sum', () => {
+  const record = {
+    id: 'emp-ctc-mismatch',
+    employeeId: 'EMP-CTC1',
+    name: 'Mismatch Test',
+    ctc: 50000,
+    basic: 20000,
+    hra: 8000,
+    specialAllowance: 5000,
+    otherAllowances: 2000, // component sum = 35000
+    employerPf: 1800,
+    employerEsi: 500,
+    employeePf: 1800,
+    esi: 150,
+    professionalTax: 200,
+  };
+
+  const res = validateEmployeeRecord(record, ['EMP-CTC1']);
+  assert.equal(res.isValid, true);
+  assert.equal(record.ctc, 50000);
+  assert.ok(res.issues.some(i => i.field === 'ctc' && i.severity === 'warning' && i.message.includes('sum of Basic')));
+});
+
+test('flags error on negative deduction amounts (Employer PF, Employee PF, Loan, Late, LOP Amount)', () => {
+  const record = {
+    id: 'emp-neg-ded',
+    employeeId: 'EMP-NEGD',
+    name: 'Negative Deduction',
+    basic: 30000,
+    pf: -500,
+    loan: -200,
+    lateDeduction: -50,
+  };
+
+  const res = validateEmployeeRecord(record, ['EMP-NEGD']);
+  assert.equal(res.isValid, false);
+  assert.ok(res.issues.some(i => i.field === 'employeePf' && i.severity === 'error'));
+  assert.ok(res.issues.some(i => i.field === 'loan' && i.severity === 'error'));
+  assert.ok(res.issues.some(i => i.field === 'lateDeduction' && i.severity === 'error'));
+});
+
+test('flags warning on malformed joiningDate or paymentDate', () => {
+  const record = {
+    id: 'emp-bad-date',
+    employeeId: 'EMP-DATE1',
+    name: 'Date Warning Staff',
+    basic: 25000,
+    joiningDate: 'not-a-valid-date',
+    paymentDate: '2026-99-99',
+  };
+
+  const res = validateEmployeeRecord(record, ['EMP-DATE1']);
+  assert.ok(res.issues.some(i => i.field === 'joiningDate' && i.severity === 'warning'));
+  assert.ok(res.issues.some(i => i.field === 'paymentDate' && i.severity === 'warning'));
+});
+

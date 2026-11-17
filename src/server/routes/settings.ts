@@ -1,169 +1,258 @@
-import { Router } from 'express';
-import { query } from '../db/pool';
-import { authenticateToken, AuthRequest } from '../middleware/auth';
+import { Router, Response } from 'express';
+import multer from 'multer';
+import { requireGoogleAccessToken, GoogleAuthRequest } from '../middleware/googleAuth';
+import { uploadFileToDrive } from '../services/googleDrive';
+import {
+  getWorksheetRows,
+  upsertWorksheetRowByKey,
+  recordSyncLog,
+} from '../services/googleSheets';
 
 const router = Router();
+router.use(requireGoogleAccessToken);
 
-router.get('/', authenticateToken, async (req: AuthRequest, res) => {
+function resolveSpreadsheetId(req: GoogleAuthRequest): string {
+  return String(
+    req.spreadsheetId || req.body?.spreadsheetId || req.query?.spreadsheetId || ''
+  ).trim();
+}
+
+function resolveFolderId(req: GoogleAuthRequest): string | null {
+  const f = String(
+    req.driveRootFolderId || req.body?.driveRootFolderId || req.query?.driveRootFolderId || ''
+  ).trim();
+  return f || null;
+}
+
+function safeJson(raw: any) {
+  if (!raw || typeof raw !== 'string') return undefined;
   try {
-    const companyId = req.user?.companyId || 1;
-    const result = await query('SELECT * FROM companies WHERE id = $1', [companyId]);
-    if (result.rows.length === 0) {
-      return res.status(404).json({ success: false, error: 'Company settings not found.' });
+    return JSON.parse(raw);
+  } catch {
+    return undefined;
+  }
+}
+
+// GET /api/settings - Load Company Settings from Google Sheets ('Company Settings' & 'Layout Settings')
+router.get('/', async (req: GoogleAuthRequest, res: Response) => {
+  try {
+    const sid = resolveSpreadsheetId(req);
+    if (!sid) {
+      return res.json({ success: true, settings: null });
+    }
+    const token = req.googleAccessToken!;
+    const [compRows, layoutRows] = await Promise.all([
+      getWorksheetRows(token, sid, 'Company Settings'),
+      getWorksheetRows(token, sid, 'Layout Settings').catch(() => []),
+    ]);
+
+    const row = compRows[1];
+    if (!row) {
+      return res.json({ success: true, settings: null });
     }
 
-    const row = result.rows[0];
-    let brandColors = undefined;
-    if (row.brand_colors_json) {
-      try {
-        brandColors = typeof row.brand_colors_json === 'string'
-          ? JSON.parse(row.brand_colors_json)
-          : row.brand_colors_json;
-      } catch {}
-    }
+    const designJson = safeJson(row[5]) || {};
+    const emailJson = safeJson(row[6]) || {};
+    const layoutJson = layoutRows[1] ? safeJson(layoutRows[1][2]) : undefined;
 
     const settings = {
-      companyName: row.company_name,
-      addressLine1: row.address_line1,
-      addressLine2: row.address_line2,
-      cityStateZip: row.city_state_zip,
-      phone: row.phone,
-      email: row.email,
-      website: row.website,
-      taxRegistrationNumber: row.tax_registration_number,
-      currencySymbol: row.currency_symbol,
-      currencyName: row.currency_name,
-      showCurrencySymbol: row.show_currency_symbol,
-      logoDataUrl: row.logo_data_url,
-      signatureDataUrl: row.signature_data_url,
-      authorizedSignatoryName: row.authorized_signatory_name,
-      authorizedSignatoryTitle: row.authorized_signatory_title,
-      payslipNote: row.payslip_note,
-      themeColor: row.theme_color || '#1e3a8a',
-      secondaryColor: row.secondary_color || '#475569',
-      accentColor: row.accent_color || '#d97706',
-      brandColors: brandColors
+      ...designJson,
+      companyName: row[0] || designJson.companyName || '',
+      phone: row[2] || designJson.phone || '',
+      email: row[3] || designJson.email || '',
+      logoDriveFileId: row[4] || designJson.logoDriveFileId || undefined,
+      emailDisplayName: emailJson.displayName || designJson.emailDisplayName || '',
+      emailSignature: emailJson.signature || designJson.emailSignature || '',
+      emailFooterText: emailJson.footerText || designJson.emailFooterText || '',
+      layoutSettings: layoutJson || designJson.layoutSettings,
     };
 
     res.json({ success: true, settings });
   } catch (err: any) {
-    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err?.message });
   }
 });
 
-router.put('/', authenticateToken, async (req: AuthRequest, res) => {
+// PUT /api/settings - Persist Company Settings to Google Sheets (zero secrets stored)
+router.put('/', async (req: GoogleAuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId || 1;
-    const s = req.body;
-    const brandColorsJson = s.brandColors ? JSON.stringify(s.brandColors) : null;
+    const sid = resolveSpreadsheetId(req);
+    if (!sid) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Google Spreadsheet linked. Link or initialize a spreadsheet in Google Workspace Setup before saving cloud settings.',
+      });
+    }
+    const token = req.googleAccessToken!;
+    const s = req.body || {};
+    const now = new Date().toISOString();
+    const address = [s.addressLine1, s.addressLine2, s.cityStateZip].filter(Boolean).join(', ');
 
-    await query(`
-      UPDATE companies SET
-        company_name = $1, address_line1 = $2, address_line2 = $3, city_state_zip = $4,
-        phone = $5, email = $6, website = $7, tax_registration_number = $8,
-        currency_symbol = $9, currency_name = $10, show_currency_symbol = $11,
-        logo_data_url = $12, signature_data_url = $13, authorized_signatory_name = $14,
-        authorized_signatory_title = $15, payslip_note = $16, theme_color = $17,
-        secondary_color = $18, accent_color = $19, brand_colors_json = $20,
-        updated_at = CURRENT_TIMESTAMP
-      WHERE id = $21
-    `, [
-      s.companyName, s.addressLine1, s.addressLine2, s.cityStateZip,
-      s.phone, s.email, s.website, s.taxRegistrationNumber,
-      s.currencySymbol, s.currencyName, s.showCurrencySymbol ?? true,
-      s.logoDataUrl, s.signatureDataUrl, s.authorizedSignatoryName,
-      s.authorizedSignatoryTitle, s.payslipNote, s.themeColor,
-      s.secondaryColor || '#475569', s.accentColor || '#d97706', brandColorsJson,
-      companyId
-    ]);
+    const { smtpPass: _p, smtpPassword: _p2, ...safeSettings } = s;
 
-    res.json({ success: true, message: 'Settings updated successfully.', settings: s });
+    await upsertWorksheetRowByKey(
+      token,
+      sid,
+      'Company Settings',
+      s.companyName || 'Default Company',
+      [
+        s.companyName || 'Default Company',
+        address,
+        s.phone || '',
+        s.email || '',
+        s.logoDriveFileId || '',
+        JSON.stringify(safeSettings),
+        JSON.stringify({
+          displayName: s.emailDisplayName || '',
+          signature: s.emailSignature || '',
+          footerText: s.emailFooterText || '',
+        }),
+        now,
+        1,
+      ],
+      0
+    );
+
+    if (s.layoutSettings && typeof s.layoutSettings === 'object') {
+      await upsertWorksheetRowByKey(
+        token,
+        sid,
+        'Layout Settings',
+        'default_payslip_layout',
+        [
+          'default_payslip_layout',
+          s.layoutSettings.templatePreset || s.layoutSettings.templateName || 'Enterprise Standard A4',
+          JSON.stringify(s.layoutSettings),
+          JSON.stringify(s.layoutSettings.sectionOrder || []),
+          JSON.stringify(s.layoutSettings.visibility || {}),
+          JSON.stringify({
+            primaryColor: s.layoutSettings.primaryColor,
+            secondaryColor: s.layoutSettings.secondaryColor,
+          }),
+          now,
+          1,
+        ],
+        0
+      );
+    }
+
+    await recordSyncLog(token, sid, {
+      worksheetName: 'Company Settings',
+      recordKey: s.companyName || 'company_settings',
+      action: 'UPSERT',
+      status: 'Synced',
+      details: 'Updated Company Settings in Google Sheets',
+    });
+
+    res.json({ success: true, message: 'Settings saved to Google Sheets.', settings: safeSettings });
   } catch (err: any) {
-    res.status(err?.statusCode || 500).json({ success: false, error: err.message });
+    res.status(err?.statusCode || 500).json({ success: false, error: err?.message });
   }
 });
 
-// POST /api/settings/logo - Upload company logo to company-assets bucket
-import multer from 'multer';
-import { supabaseStorage, STORAGE_BUCKETS } from '../storage/supabaseStorage';
+// GET /api/settings/layout - Fetch persisted payslip layout settings from Google Sheets
+router.get('/layout', async (req: GoogleAuthRequest, res: Response) => {
+  try {
+    const sid = resolveSpreadsheetId(req);
+    if (!sid) {
+      return res.json({ success: true, layoutSettings: null });
+    }
+    const rows = await getWorksheetRows(req.googleAccessToken!, sid, 'Layout Settings');
+    const row = rows[1];
+    const layoutSettings = row ? safeJson(row[2]) || null : null;
+    res.json({ success: true, layoutSettings });
+  } catch (err: any) {
+    res.status(err?.statusCode || 500).json({ success: false, error: err?.message });
+  }
+});
+
+// PUT /api/settings/layout - Persist payslip layout settings to Google Sheets
+router.put('/layout', async (req: GoogleAuthRequest, res: Response) => {
+  try {
+    const sid = resolveSpreadsheetId(req);
+    if (!sid) {
+      return res.status(400).json({
+        success: false,
+        error: 'No Google Spreadsheet linked. Link or initialize a spreadsheet before saving layout cloud settings.',
+      });
+    }
+    const layoutSettings = req.body?.layoutSettings ?? req.body;
+    if (!layoutSettings || typeof layoutSettings !== 'object') {
+      return res.status(400).json({ success: false, error: 'Invalid layoutSettings payload.' });
+    }
+    const now = new Date().toISOString();
+    await upsertWorksheetRowByKey(
+      req.googleAccessToken!,
+      sid,
+      'Layout Settings',
+      'default_payslip_layout',
+      [
+        'default_payslip_layout',
+        layoutSettings.templatePreset || layoutSettings.templateName || 'Enterprise Standard A4',
+        JSON.stringify(layoutSettings),
+        JSON.stringify(layoutSettings.sectionOrder || []),
+        JSON.stringify(layoutSettings.visibility || {}),
+        JSON.stringify({
+          primaryColor: layoutSettings.primaryColor,
+          secondaryColor: layoutSettings.secondaryColor,
+        }),
+        now,
+        1,
+      ],
+      0
+    );
+    res.json({ success: true, message: 'Payslip layout saved to Google Sheets.', layoutSettings });
+  } catch (err: any) {
+    res.status(err?.statusCode || 500).json({ success: false, error: err?.message });
+  }
+});
 
 const logoUpload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 10 * 1024 * 1024 }, // 10MB limit
-  fileFilter: (req, file, cb) => {
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (_req, file, cb) => {
     const allowed = ['image/png', 'image/jpeg', 'image/jpg', 'image/svg+xml', 'image/webp'];
     if (allowed.includes(file.mimetype)) {
       cb(null, true);
     } else {
       cb(new Error('Invalid image type. Allowed: PNG, JPG, JPEG, SVG, WebP.'));
     }
-  }
+  },
 });
 
-router.post('/logo', authenticateToken, logoUpload.single('logo'), async (req: AuthRequest, res) => {
+// POST /api/settings/logo - Upload company logo to Google Drive ('Company Branding')
+router.post('/logo', logoUpload.single('logo'), async (req: GoogleAuthRequest, res: Response) => {
   try {
-    const companyId = req.user?.companyId || 1;
     const file = req.file;
-
     if (!file) {
       return res.status(400).json({ success: false, error: 'No logo image file provided.' });
     }
 
-    const storagePath = supabaseStorage.buildStructuredPath({
-      companyId,
-      bucket: STORAGE_BUCKETS.COMPANY_ASSETS,
-      documentType: 'branding',
-      fileName: file.originalname
+    const driveRes = await uploadFileToDrive({
+      accessToken: req.googleAccessToken!,
+      rootFolderId: resolveFolderId(req),
+      category: 'company-assets',
+      fileName: `CompanyLogo_${file.originalname}`,
+      mimeType: file.mimetype,
+      buffer: file.buffer,
+      description: 'Official company logo for payslips and branding',
     });
 
-    const uploadRes = await supabaseStorage.uploadObject(
-      STORAGE_BUCKETS.COMPANY_ASSETS,
-      storagePath,
-      file.buffer,
-      file.mimetype
-    );
-
-    // Generate signed URL (valid for 7 days / 604800s for persistent UI display)
-    const signedUrl = await supabaseStorage.createSignedUrl(
-      STORAGE_BUCKETS.COMPANY_ASSETS,
-      uploadRes.path,
-      604800
-    );
-
-    // Update company logo in database
-    await query(`
-      UPDATE companies
-      SET logo_data_url = $1, updated_at = CURRENT_TIMESTAMP
-      WHERE id = $2
-    `, [signedUrl, companyId]);
-
-    // Record in storage_objects
-    await query(`
-      INSERT INTO storage_objects (
-        company_id, bucket, storage_path, file_name, mime_type, file_size_bytes,
-        entity_type, entity_id, uploaded_by
-      ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-    `, [
-      companyId,
-      STORAGE_BUCKETS.COMPANY_ASSETS,
-      uploadRes.path,
-      file.originalname,
-      file.mimetype,
-      file.buffer.length,
-      'company_logo',
-      String(companyId),
-      req.user?.username || 'Admin'
-    ]);
+    const logoUrl = `data:${file.mimetype};base64,${file.buffer.toString('base64')}`;
 
     res.json({
       success: true,
-      logoUrl: signedUrl,
-      storagePath: uploadRes.path,
-      fileName: file.originalname
+      logoUrl,
+      driveFileId: driveRes.fileId,
+      rootFolderId: driveRes.rootFolderId,
+      storagePath: `drive:${driveRes.fileId}`,
+      fileName: file.originalname,
     });
   } catch (err: any) {
-    console.error('[Logo Upload Error]:', err?.message || err);
-    res.status(err?.statusCode || 500).json({ success: false, error: err.message || 'Failed to upload logo.' });
+    res.status(err?.statusCode || 500).json({
+      success: false,
+      error: err?.message || 'Failed to upload company logo to Google Drive.',
+    });
   }
 });
 

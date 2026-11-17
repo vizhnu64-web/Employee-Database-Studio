@@ -6,6 +6,7 @@ export interface EmployeeRecord {
   department?: string;
   designation?: string;
   joiningDate?: string;
+  paymentDate?: string;
   paidDays?: number;
   unpaidDays?: number; // Loss of pay (LOP)
 
@@ -69,6 +70,8 @@ export interface EmployeeRecord {
   providedDeductions?: number; // Value read directly from file if present
   calculatedDeductions: number; // Stage 2 Total Deductions: Employee PF + ESI + PT + TDS + Loan + Late + LOP + Other
   totalDeductions?: number; // Alias for calculatedDeductions
+  customEarnings?: Array<{ label: string; amount: number }>;
+  customDeductions?: Array<{ label: string; amount: number }>;
 
   // Net Salary
   providedNet?: number; // Value read directly from file if present
@@ -278,6 +281,9 @@ export interface GeneratedPayslipRecord {
   fileName: string;
   pdfBase64?: string;
   pdfDataUri?: string;
+  generationMethod?: 'Bulk Payroll' | 'Manual Entry';
+  driveFileId?: string;
+  emailStatus?: 'Pending' | 'Sent' | 'Failed';
 }
 
 export interface PayrollPeriod {
@@ -290,19 +296,48 @@ export interface PayslipCustomFieldLayout {
   label: string;
   showInPdf?: boolean;
   isVisible?: boolean;
-  align?: 'left' | 'right';
+  align?: 'left' | 'center' | 'right';
   section?: 'employee' | 'earnings' | 'deductions' | 'footer' | 'header';
 }
+
+export interface PayslipElementConfig {
+  key: string;
+  label?: string;
+  visible?: boolean;
+  sectionPlacement?: 'employeeInfo' | 'earnings' | 'deductions' | 'finalSummary';
+  align?: 'left' | 'center' | 'right';
+  width?: 'half' | 'full' | 'auto';
+  spacing?: 'compact' | 'normal' | 'spacious';
+  fontFamily?: 'inherit' | 'helvetica' | 'sans' | 'times' | 'courier';
+  fontSize?: number;
+  fontWeight?: 'normal' | 'medium' | 'bold';
+  textColor?: string;
+  backgroundColor?: string;
+  borderStyle?: 'none' | 'subtle' | 'solid';
+  valueFormat?: 'auto' | 'currency' | 'number' | 'date' | 'text' | 'masked';
+  order?: number;
+}
+
+export type PayslipTemplatePreset =
+  | 'professional_corporate'
+  | 'minimal_clean'
+  | 'detailed_breakdown'
+  | 'classic'
+  | 'modern'
+  | 'compact';
 
 export interface PayslipLayoutSettings {
   // Visibility Toggles
   showLogo: boolean;
   showTaxId: boolean;
+  showPayslipNumber?: boolean;
   showEmployeeId: boolean;
   showName: boolean;
   showDepartment: boolean;
   showDesignation: boolean;
   showJoiningDate: boolean;
+  showEmail?: boolean;
+  showPhone?: boolean;
   showPaidDays: boolean;
   showUnpaidDays: boolean;
   showLopDays: boolean;
@@ -311,6 +346,7 @@ export interface PayslipLayoutSettings {
   showPresentDays: boolean;
   showAbsentDays: boolean;
   showBankAccount: boolean;
+  maskBankAccount?: boolean;
   showBankName: boolean;
   showIfscCode: boolean;
   showBranchName: boolean;
@@ -327,6 +363,7 @@ export interface PayslipLayoutSettings {
   showCtc?: boolean;
   showEmployerPf?: boolean;
   showEmployerEsi?: boolean;
+  showGrossEarnings?: boolean;
   showEmployeePf?: boolean;
   showPf: boolean;
   showEsi: boolean;
@@ -336,15 +373,20 @@ export interface PayslipLayoutSettings {
   showLateDeduction?: boolean;
   showLopDeduction?: boolean;
   showOtherDeductions: boolean;
+  showTotalDeductions?: boolean;
+  showNetSalary?: boolean;
   showSignatures: boolean;
   showFooterNote: boolean;
 
   // Customizable Labels
+  labelPayslipNumber?: string;
   labelEmployeeId: string;
   labelName: string;
   labelDepartment: string;
   labelDesignation: string;
   labelJoiningDate: string;
+  labelEmail?: string;
+  labelPhone?: string;
   labelPaidDays: string;
   labelUnpaidDays: string;
   labelLopDays: string;
@@ -365,6 +407,7 @@ export interface PayslipLayoutSettings {
   labelCtc?: string;
   labelEmployerPf?: string;
   labelEmployerEsi?: string;
+  labelGrossEarnings?: string;
   labelEmployeePf?: string;
   labelBasic: string;
   labelHra: string;
@@ -378,33 +421,67 @@ export interface PayslipLayoutSettings {
   labelLateDeduction?: string;
   labelLopDeduction?: string;
   labelOtherDeductions: string;
+  labelTotalDeductions?: string;
   labelNetSalary: string;
   labelEarnings: string;
   labelDeductions: string;
 
-  // Custom Fields Layout
+  // Per-field Element Inspector Configuration & Custom Fields Layout
+  fieldConfigs?: Record<string, PayslipElementConfig>;
   customFieldLayouts?: PayslipCustomFieldLayout[];
+  customFieldsMeta?: Array<{
+    key: string;
+    label: string;
+    sampleValue?: string;
+    sectionPlacement?: 'employeeInfo' | 'earnings' | 'deductions' | 'finalSummary';
+    visible?: boolean;
+  }>;
 
   alignHeader: 'left' | 'center' | 'right';
   primaryColor: string;
+  secondaryColor?: string;
+  sectionOrder?: Array<'employeeInfo' | 'salaryTable' | 'netPay' | 'notes' | 'signatures'>;
+  fontFamily?: 'helvetica' | 'times' | 'courier' | 'sans';
+  headerFontSize?: number;
+  bodyFontSize?: number;
+  tableBorderStyle?: 'grid' | 'horizontal' | 'minimal';
+  cellPadding?: 'compact' | 'standard' | 'spacious';
+  logoSize?: 'small' | 'medium' | 'large';
+  logoPosition?: 'left' | 'center' | 'right';
+  orientation?: 'portrait' | 'landscape';
+  marginMm?: number;
+  showPaymentDate?: boolean;
+  labelPaymentDate?: string;
+  customTextBlocks?: Array<{
+    id: string;
+    title: string;
+    content: string;
+    position: 'afterEmployeeInfo' | 'afterNetPay' | 'footer';
+    visible: boolean;
+  }>;
+  templatePreset?: PayslipTemplatePreset;
 }
 
 export const DEFAULT_LAYOUT_SETTINGS: PayslipLayoutSettings = {
   showLogo: true,
   showTaxId: true,
+  showPayslipNumber: false,
   showEmployeeId: true,
   showName: true,
   showDepartment: true,
   showDesignation: true,
   showJoiningDate: true,
+  showEmail: true,
+  showPhone: true,
   showPaidDays: true,
   showUnpaidDays: true,
   showLopDays: true,
   showLopAmount: true,
-  showTotalWorkingDays: false,
+  showTotalWorkingDays: true,
   showPresentDays: false,
   showAbsentDays: false,
   showBankAccount: true,
+  maskBankAccount: false,
   showBankName: true,
   showIfscCode: true,
   showBranchName: false,
@@ -412,11 +489,12 @@ export const DEFAULT_LAYOUT_SETTINGS: PayslipLayoutSettings = {
   showPan: true,
   showUan: true,
   showEsiNumber: true,
-  showPfNumber: false,
+  showPfNumber: true,
   showAadhaar: false,
   showCtc: true,
   showEmployerPf: true,
   showEmployerEsi: true,
+  showGrossEarnings: true,
   showEmployeePf: true,
   showBasic: true,
   showHra: true,
@@ -430,14 +508,19 @@ export const DEFAULT_LAYOUT_SETTINGS: PayslipLayoutSettings = {
   showLateDeduction: true,
   showLopDeduction: true,
   showOtherDeductions: true,
+  showTotalDeductions: true,
+  showNetSalary: true,
   showSignatures: true,
   showFooterNote: true,
 
+  labelPayslipNumber: 'Payslip Number',
   labelEmployeeId: 'Employee ID',
   labelName: 'Employee Name',
   labelDepartment: 'Department',
   labelDesignation: 'Designation',
   labelJoiningDate: 'Joining Date',
+  labelEmail: 'Email',
+  labelPhone: 'Phone',
   labelPaidDays: 'Paid Days',
   labelUnpaidDays: 'Loss of Pay (LOP)',
   labelLopDays: 'LOP Days',
@@ -458,6 +541,7 @@ export const DEFAULT_LAYOUT_SETTINGS: PayslipLayoutSettings = {
   labelCtc: 'Cost to Company (CTC)',
   labelEmployerPf: 'Employer PF',
   labelEmployerEsi: 'Employer ESI',
+  labelGrossEarnings: 'TOTAL GROSS EARNINGS',
   labelEmployeePf: 'Employee PF',
   labelBasic: 'Basic Salary',
   labelHra: 'HRA',
@@ -471,14 +555,32 @@ export const DEFAULT_LAYOUT_SETTINGS: PayslipLayoutSettings = {
   labelLateDeduction: 'Late Deduction',
   labelLopDeduction: 'Loss of Pay (LOP)',
   labelOtherDeductions: 'Other Deductions',
+  labelTotalDeductions: 'TOTAL DEDUCTIONS',
   labelNetSalary: 'NET SALARY PAYABLE',
   labelEarnings: 'EARNINGS',
   labelDeductions: 'DEDUCTIONS',
 
+  fieldConfigs: {},
   customFieldLayouts: [],
+  customFieldsMeta: [],
 
   alignHeader: 'left',
-  primaryColor: '#CB1417'
+  primaryColor: '#CB1417',
+  secondaryColor: '#18181B',
+  sectionOrder: ['employeeInfo', 'salaryTable', 'netPay', 'notes', 'signatures'],
+  fontFamily: 'helvetica',
+  headerFontSize: 15,
+  bodyFontSize: 8,
+  tableBorderStyle: 'grid',
+  cellPadding: 'standard',
+  logoSize: 'medium',
+  logoPosition: 'left',
+  orientation: 'portrait',
+  marginMm: 14,
+  showPaymentDate: true,
+  labelPaymentDate: 'Payment Date',
+  customTextBlocks: [],
+  templatePreset: 'professional_corporate'
 };
 
 

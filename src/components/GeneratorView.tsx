@@ -48,6 +48,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
   const [duplicateConfirmTarget, setDuplicateConfirmTarget] = useState<EmployeeRecord | null>(null);
   const [bulkDuplicateWarning, setBulkDuplicateWarning] = useState<boolean>(false);
   const [successToast, setSuccessToast] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
   const [editingEmployee, setEditingEmployee] = useState<EmployeeRecord | null>(null);
 
   useEffect(() => {
@@ -104,34 +105,35 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
       totalDeductions: employee.calculatedDeductions,
       netSalary: employee.calculatedNet,
       generatedAt: new Date().toISOString(),
-      fileName
+      fileName,
+      generationMethod: 'Bulk Payroll'
     };
 
-    // Upload to Supabase Storage backend
-    try {
-      const token = apiClient.getToken();
-      await fetch('/api/payroll/save-payslip-pdf', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          ...(token ? { Authorization: `Bearer ${token}` } : {})
-        },
-        body: JSON.stringify({
-          employeeId: employee.employeeId,
-          employeeName: employee.name,
-          department: employee.department,
-          designation: employee.designation,
-          month: selectedMonth,
-          year: selectedYear,
-          grossEarnings: employee.calculatedGross,
-          totalDeductions: employee.calculatedDeductions,
-          netSalary: employee.calculatedNet,
-          pdfBase64: pdfDataUri,
-          fileName
-        })
-      });
-    } catch (e) {
-      console.warn('[Storage] Failed to sync generated payslip to cloud bucket:', e);
+    if (apiClient.getToken()) {
+      try {
+        const saveData = await apiClient.request('/payroll/save-payslip-pdf', {
+          method: 'POST',
+          body: JSON.stringify({
+            employeeId: employee.employeeId,
+            employeeName: employee.name,
+            department: employee.department,
+            designation: employee.designation,
+            month: selectedMonth,
+            year: selectedYear,
+            grossEarnings: employee.calculatedGross,
+            totalDeductions: employee.calculatedDeductions,
+            netSalary: employee.calculatedNet,
+            pdfBase64: pdfDataUri,
+            fileName,
+            generationMethod: 'Bulk Payroll'
+          })
+        });
+        if (saveData?.driveFileId) {
+          historyRecord.driveFileId = saveData.driveFileId;
+        }
+      } catch (e) {
+        console.warn('[Drive] Failed to archive generated payslip to Google Drive:', e);
+      }
     }
 
     await localDB.saveGeneratedRecord(historyRecord);
@@ -184,33 +186,35 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
           totalDeductions: emp.calculatedDeductions,
           netSalary: emp.calculatedNet,
           generatedAt: new Date().toISOString(),
-          fileName
+          fileName,
+          generationMethod: 'Bulk Payroll'
         };
 
-        try {
-          const token = apiClient.getToken();
-          await fetch('/api/payroll/save-payslip-pdf', {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              ...(token ? { Authorization: `Bearer ${token}` } : {})
-            },
-            body: JSON.stringify({
-              employeeId: emp.employeeId,
-              employeeName: emp.name,
-              department: emp.department,
-              designation: emp.designation,
-              month: selectedMonth,
-              year: selectedYear,
-              grossEarnings: emp.calculatedGross,
-              totalDeductions: emp.calculatedDeductions,
-              netSalary: emp.calculatedNet,
-              pdfBase64: pdfDataUri,
-              fileName
-            })
-          });
-        } catch (e) {
-          console.warn('[Storage] Failed to upload bulk payslip to cloud bucket:', e);
+        if (apiClient.getToken()) {
+          try {
+            const saveData = await apiClient.request('/payroll/save-payslip-pdf', {
+              method: 'POST',
+              body: JSON.stringify({
+                employeeId: emp.employeeId,
+                employeeName: emp.name,
+                department: emp.department,
+                designation: emp.designation,
+                month: selectedMonth,
+                year: selectedYear,
+                grossEarnings: emp.calculatedGross,
+                totalDeductions: emp.calculatedDeductions,
+                netSalary: emp.calculatedNet,
+                pdfBase64: pdfDataUri,
+                fileName,
+                generationMethod: 'Bulk Payroll'
+              })
+            });
+            if (saveData?.driveFileId) {
+              historyRecord.driveFileId = saveData.driveFileId;
+            }
+          } catch (e) {
+            console.warn('[Drive] Failed to archive bulk payslip to Google Drive:', e);
+          }
         }
 
         await localDB.saveGeneratedRecord(historyRecord);
@@ -226,9 +230,10 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
       a.click();
       document.body.removeChild(a);
       URL.revokeObjectURL(url);
+      setErrorBanner(null);
       setSuccessToast(`Generated ZIP containing ${targetEmployees.length} PDF payslips!`);
     } catch (err: any) {
-      alert(`Bulk generation error: ${err.message}`);
+      setErrorBanner(`Bulk generation error: ${err.message}`);
     } finally {
       setIsGeneratingBulk(false);
       setBulkProgress(null);
@@ -287,6 +292,24 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
         </div>
       )}
 
+      {errorBanner && (
+        <div className={`p-3.5 rounded-xl flex items-center justify-between gap-3 text-xs border ${
+          isDark ? 'bg-[#2E0B0D] border-[#57151A] text-[#FCA5A5]' : 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
+        }`}>
+          <div className="flex items-center space-x-2">
+            <AlertTriangle className="w-4 h-4 text-[#ED1F24] shrink-0" />
+            <span>{errorBanner}</span>
+          </div>
+          <button
+            type="button"
+            onClick={() => setErrorBanner(null)}
+            className="text-[11px] font-semibold underline cursor-pointer shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
+
       {/* Warning if invalid records in selection */}
       {invalidInSelection > 0 && (
         <div className={`p-4 rounded-xl flex items-center space-x-3 text-xs border ${
@@ -296,7 +319,7 @@ export const GeneratorView: React.FC<GeneratorViewProps> = ({
           <div>
             <span className="font-semibold tabular-nums">{invalidInSelection} record(s) in your selection have validation warnings or errors.</span>
             <p className="opacity-90 mt-0.5">
-              Payslips generated from incomplete salary data may require review. Please audit math in the Validation tab.
+              Payslips generated from incomplete salary data may require review. Please audit math in the Payroll Processing tab.
             </p>
           </div>
         </div>

@@ -82,13 +82,41 @@ export function validateEmployeeRecord(
   const calculatedDeductions = salaryCalc.calculatedDeductions;
   const calculatedNet = salaryCalc.calculatedNet;
 
-  const basic = Number(record.basic) || 0;
-  if (basic < 0) {
+  const numericChecks: Array<{ field: string; label: string; val: number }> = [
+    { field: 'basic', label: 'Basic Salary', val: Number(record.basic) || 0 },
+    { field: 'hra', label: 'HRA', val: Number(record.hra) || 0 },
+    { field: 'specialAllowance', label: 'Special Allowance', val: Number(record.specialAllowance) || 0 },
+    { field: 'otherAllowances', label: 'Other Allowances', val: Number(record.otherAllowances) || 0 },
+    { field: 'employerPf', label: 'Employer PF', val: Number(record.employerPf) || 0 },
+    { field: 'employerEsi', label: 'Employer ESI', val: Number(record.employerEsi) || 0 },
+    { field: 'employeePf', label: 'Employee PF', val: Number(record.employeePf ?? record.pf) || 0 },
+    { field: 'esi', label: 'Employee ESI', val: Number(record.esi) || 0 },
+    { field: 'professionalTax', label: 'Professional Tax', val: Number(record.professionalTax) || 0 },
+    { field: 'tds', label: 'TDS', val: Number(record.tds) || 0 },
+    { field: 'loan', label: 'Loan Deduction', val: Number(record.loan) || 0 },
+    { field: 'lateDeduction', label: 'Late Deduction', val: Number(record.lateDeduction) || 0 },
+    { field: 'lopAmount', label: 'LOP Amount', val: Number(record.lopAmount ?? record.lopDeduction) || 0 },
+    { field: 'otherDeductions', label: 'Other Deductions', val: Number(record.otherDeductions) || 0 },
+  ];
+
+  numericChecks.forEach(({ field, label, val }) => {
+    if (val < 0) {
+      issues.push({
+        field,
+        severity: 'error',
+        message: `${label} cannot be negative.`,
+        actual: val,
+      });
+    }
+  });
+
+  if (salaryCalc.ctcMismatch && record.ctc !== undefined && record.ctc > 0) {
     issues.push({
-      field: 'basic',
-      severity: 'error',
-      message: 'Basic salary cannot be negative.',
-      actual: basic
+      field: 'ctc',
+      severity: 'warning',
+      message: `Provided CTC (${roundCurrency(record.ctc)}) differs from sum of Basic + HRA + Special + Other (${salaryCalc.componentSum4}). Provided CTC was preserved.`,
+      expected: salaryCalc.componentSum4,
+      actual: roundCurrency(record.ctc),
     });
   }
 
@@ -227,6 +255,24 @@ export function validateEmployeeRecord(
       });
     }
   }
+
+  // 10. Joining & Payment Date Validation
+  [
+    { field: 'joiningDate', label: 'Joining Date', raw: record.joiningDate },
+    { field: 'paymentDate', label: 'Payment Date', raw: record.paymentDate },
+  ].forEach(({ field, label, raw }) => {
+    if (raw && typeof raw === 'string' && raw.trim() !== '') {
+      const parsed = Date.parse(raw.trim());
+      if (isNaN(parsed)) {
+        issues.push({
+          field,
+          severity: 'warning',
+          message: `${label} ("${raw.trim()}") is not a recognized date format (recommended YYYY-MM-DD).`,
+          actual: raw.trim(),
+        });
+      }
+    }
+  });
 
   const hasErrors = issues.some(i => i.severity === 'error');
   const isValid = !hasErrors;

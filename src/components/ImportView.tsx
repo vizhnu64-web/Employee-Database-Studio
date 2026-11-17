@@ -95,6 +95,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
     employeeId: '',
     name: '',
     email: '',
+    phone: '',
     department: '',
     designation: '',
     joiningDate: '',
@@ -103,6 +104,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
     bankAccount: '',
     pan: '',
     uan: '',
+    pfNumber: '',
     esiNumber: '',
     bankName: '',
     ifscCode: '',
@@ -110,7 +112,12 @@ export const ImportView: React.FC<ImportViewProps> = ({
     accountHolderName: '',
     lopDays: '',
     lopAmount: '',
+    lopDeduction: '',
     totalWorkingDays: '',
+    ctc: '',
+    employerPf: '',
+    employerEsi: '',
+    employeePf: '',
     basic: '',
     hra: '',
     specialAllowance: '',
@@ -120,6 +127,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
     esi: '',
     professionalTax: '',
     tds: '',
+    loan: '',
+    lateDeduction: '',
     otherDeductions: '',
     providedDeductions: '',
     providedNet: '',
@@ -196,22 +205,30 @@ export const ImportView: React.FC<ImportViewProps> = ({
       setFileName(name);
       setSelectedHeaderRow(headerRowIndex);
 
-      // Upload file to import-files bucket via backend storage API
-      try {
-        const fileObj = new File([new Uint8Array(buffer)], name, { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
-        const token = apiClient.getToken();
-        const formData = new FormData();
-        formData.append('file', fileObj);
-        formData.append('year', String(new Date().getFullYear()));
-        formData.append('month', new Date().toLocaleString('default', { month: 'long' }));
+      // Optionally archive imported spreadsheet to Google Drive when signed in (non-blocking)
+      if (!name.startsWith('Sample_Payroll_') && apiClient.getToken()) {
+        void (async () => {
+          try {
+            const statusJson = await apiClient.request('/drive/status');
+            if (!statusJson?.isConnected) return;
 
-        await fetch('/api/storage/upload/import-files', {
-          method: 'POST',
-          headers: token ? { Authorization: `Bearer ${token}` } : {},
-          body: formData
-        });
-      } catch (uploadErr) {
-        console.warn('[Storage] Import file cloud upload skipped or offline:', uploadErr);
+            const fileObj = new File([new Uint8Array(buffer)], name, {
+              type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+            });
+            const formData = new FormData();
+            formData.append('file', fileObj);
+            formData.append('category', 'payroll-records');
+            formData.append('year', String(new Date().getFullYear()));
+            formData.append('month', new Date().toLocaleString('default', { month: 'long' }));
+
+            await apiClient.request('/drive/upload', {
+              method: 'POST',
+              body: formData,
+            });
+          } catch {
+            // Optional Google Drive archival skipped when offline
+          }
+        })();
       }
 
       const parsed = parseExcelFile(buffer, name, headerRowIndex);
@@ -859,8 +876,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
                     }`}
                   >
                     <div>
-                      <div className="font-semibold text-xs text-white">{cfg.name}</div>
-                      {cfg.description && <div className="text-[11px] text-zinc-400 mt-0.5">{cfg.description}</div>}
+                      <div className={`font-semibold text-xs ${isDark ? 'text-white' : 'text-black'}`}>{cfg.name}</div>
+                      {cfg.description && <div className={`text-[11px] mt-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>{cfg.description}</div>}
                       <div className="text-[10px] text-zinc-500 mt-1">Saved on {new Date(cfg.createdAt).toLocaleDateString()}</div>
                     </div>
                     <button
@@ -1078,7 +1095,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                   <div>
                     <div className="flex items-center space-x-2">
                       <FileCheck className="w-4 h-4 text-[#CB1417]" />
-                      <span className="font-bold text-xs text-white">{fileName}</span>
+                      <span className={`font-bold text-xs ${isDark ? 'text-white' : 'text-black'}`}>{fileName}</span>
                       <span className="text-zinc-500 text-xs">({parsedWb.totalRawRows} data rows, {parsedWb.headers.length} headers)</span>
                     </div>
 
@@ -1127,30 +1144,30 @@ export const ImportView: React.FC<ImportViewProps> = ({
                 {/* Column Health Badges */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-3">
                   <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                    <div className="text-[11px] text-zinc-400">Total Columns</div>
-                    <div className="text-base font-bold text-white mt-0.5">{parsedWb.headers.length}</div>
+                    <div className={`text-[11px] ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Total Columns</div>
+                    <div className={`text-base font-bold mt-0.5 ${isDark ? 'text-white' : 'text-black'}`}>{parsedWb.headers.length}</div>
                     <div className="text-[10px] text-zinc-500 mt-0.5">Detected in worksheet</div>
                   </div>
 
                   <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                    <div className="text-[11px] text-zinc-400">Standard Fields</div>
-                    <div className="text-base font-bold text-emerald-400 mt-0.5">
+                    <div className={`text-[11px] ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Standard Fields</div>
+                    <div className="text-base font-bold text-emerald-500 mt-0.5">
                       {columnControls.filter(c => c.isStandard).length}
                     </div>
                     <div className="text-[10px] text-zinc-500 mt-0.5">Recognized Employee Database Studio fields</div>
                   </div>
 
                   <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                    <div className="text-[11px] text-zinc-400">Additional Fields</div>
-                    <div className="text-base font-bold text-amber-400 mt-0.5">
+                    <div className={`text-[11px] ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Additional Fields</div>
+                    <div className="text-base font-bold text-amber-500 mt-0.5">
                       {detectedExtraColumns.length}
                     </div>
                     <div className="text-[10px] text-zinc-500 mt-0.5">Custom company columns</div>
                   </div>
 
                   <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                    <div className="text-[11px] text-zinc-400">Empty / Blank Columns</div>
-                    <div className="text-base font-bold text-zinc-400 mt-0.5">
+                    <div className={`text-[11px] ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>Empty / Blank Columns</div>
+                    <div className={`text-base font-bold mt-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                       {parsedWb.emptyColumns?.length || 0}
                     </div>
                     <div className="text-[10px] text-zinc-500 mt-0.5">Safely excluded by default</div>
@@ -1159,7 +1176,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
 
                 {/* Raw Sheet Data Preview */}
                 <div className={`rounded-xl p-4 border ${isDark ? 'bg-[#070708] border-[#1C1C20]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                  <h4 className="text-xs font-bold uppercase tracking-wider mb-2 text-zinc-300 flex items-center space-x-1.5">
+                  <h4 className={`text-xs font-bold uppercase tracking-wider mb-2 flex items-center space-x-1.5 ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                     <Info className="w-3.5 h-3.5 text-[#CB1417]" />
                     <span>Raw Sheet Data Preview (First 5 Rows)</span>
                   </h4>
@@ -1181,7 +1198,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                           <tr key={idx} className={isDark ? 'hover:bg-[#121214]' : 'hover:bg-[#F8F9FA]'}>
                             <td className="p-2 text-zinc-500">{idx + 1}</td>
                             {parsedWb.headers.slice(0, 10).map(h => (
-                              <td key={h} className="p-2 truncate max-w-xs text-white">
+                              <td key={h} className={`p-2 truncate max-w-xs ${isDark ? 'text-white' : 'text-black'}`}>
                                 {row[h] !== undefined ? String(row[h]) : '-'}
                               </td>
                             ))}
@@ -1370,15 +1387,15 @@ export const ImportView: React.FC<ImportViewProps> = ({
                           </td>
 
                           {/* Excel Column Name */}
-                          <td className="p-3 font-semibold text-white">
+                          <td className={`p-3 font-semibold ${isDark ? 'text-white' : 'text-black'}`}>
                             <span>{ctrl.excelColumn}</span>
                           </td>
 
                           {/* Sample Cell Value */}
-                          <td className="p-3 font-mono text-[11px] text-zinc-400 max-w-xs truncate">
+                          <td className={`p-3 font-mono text-[11px] max-w-xs truncate ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                             {ctrl.sampleValue !== undefined && ctrl.sampleValue !== null && ctrl.sampleValue !== ''
                               ? String(ctrl.sampleValue)
-                              : <span className="italic text-zinc-600">(empty)</span>}
+                              : <span className="italic text-zinc-500">(empty)</span>}
                           </td>
 
                           {/* Suggested Employee Database Studio Field Selector */}
@@ -1395,11 +1412,13 @@ export const ImportView: React.FC<ImportViewProps> = ({
                                 <option value="employeeId">Employee ID (String with leading zeros)</option>
                                 <option value="name">Employee Legal Name</option>
                                 <option value="email">Work / Personal Email</option>
+                                <option value="phone">Phone / Mobile Number</option>
                                 <option value="department">Department</option>
                                 <option value="designation">Designation / Role</option>
                                 <option value="joiningDate">Date of Joining</option>
                                 <option value="pan">PAN Number (Permanent Account Number)</option>
                                 <option value="uan">UAN (Universal Account Number / PF)</option>
+                                <option value="pfNumber">PF Number</option>
                                 <option value="esiNumber">ESI Number (Statutory Medical Insurance No)</option>
                               </optgroup>
                               <optgroup label="Bank & Financial Information">
@@ -1418,8 +1437,9 @@ export const ImportView: React.FC<ImportViewProps> = ({
                                 <option value="specialAllowance">Special Allowance</option>
                                 <option value="otherAllowances">Other Allowances</option>
                                 <option value="providedGross">Gross Salary (Pre-calculated in Sheet)</option>
+                                <option value="employeePf">Employee PF (Deduction)</option>
                                 <option value="pf">Provident Fund (PF Deduction)</option>
-                                <option value="esi">ESI Deduction (Contribution)</option>
+                                <option value="esi">ESI Deduction (Employee ESI)</option>
                                 <option value="professionalTax">Professional Tax (PT)</option>
                                 <option value="tds">TDS / Income Tax</option>
                                 <option value="loan">Staff Loan / Advance Recovery</option>
@@ -1433,7 +1453,9 @@ export const ImportView: React.FC<ImportViewProps> = ({
                                 <option value="unpaidDays">Unpaid Leave Days</option>
                                 <option value="totalWorkingDays">Total Working Days</option>
                                 <option value="lopDays">Loss of Pay (LOP) Days</option>
-                                <option value="lopAmount">Loss of Pay (LOP) Deduction Amount (Rs)</option>
+                                <option value="lopAmount">Loss of Pay (LOP) Deduction Amount</option>
+                                <option value="payrollMonth">Pay Month</option>
+                                <option value="payrollYear">Pay Year</option>
                               </optgroup>
                               {customFieldDefs.length > 0 && (
                                 <optgroup label="Custom / Extra Fields">
@@ -1517,11 +1539,11 @@ export const ImportView: React.FC<ImportViewProps> = ({
         {currentStep === 'custom_fields' && (
           <div className="mt-6 space-y-6">
             <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#070708] border-[#1C1C20]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-              <h3 className="text-sm font-bold text-white flex items-center space-x-2">
+              <h3 className={`text-sm font-bold flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
                 <Sliders className="w-4 h-4 text-[#CB1417]" />
                 <span>Additional / Custom Excel Fields Management</span>
               </h3>
-              <p className="text-xs text-zinc-400 mt-1">
+              <p className={`text-xs mt-1 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                 Employee Database Studio detected non-standard headers in your file. Configure how these additional fields should be typed, stored, and displayed on payslips.
               </p>
             </div>
@@ -1554,12 +1576,12 @@ export const ImportView: React.FC<ImportViewProps> = ({
                     >
                       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b dark:border-zinc-800 border-zinc-200 pb-3">
                         <div className="flex items-center space-x-2">
-                          <span className="font-bold text-sm text-white">{ctrl.excelColumn}</span>
-                          <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-400 border border-purple-500/20 font-semibold">
+                          <span className={`font-bold text-sm ${isDark ? 'text-white' : 'text-black'}`}>{ctrl.excelColumn}</span>
+                          <span className="text-[10px] px-2 py-0.5 rounded bg-purple-500/10 text-purple-500 border border-purple-500/20 font-semibold">
                             Extra Field
                           </span>
                           <span className="text-xs text-zinc-500">
-                            Sample: <span className="font-mono text-zinc-300">{ctrl.sampleValue !== undefined ? String(ctrl.sampleValue) : '(empty)'}</span>
+                            Sample: <span className={`font-mono ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>{ctrl.sampleValue !== undefined ? String(ctrl.sampleValue) : '(empty)'}</span>
                           </span>
                         </div>
 
@@ -1687,9 +1709,9 @@ export const ImportView: React.FC<ImportViewProps> = ({
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {/* Duplicate Strategy */}
                 <div className={`p-4 rounded-lg border ${isDark ? 'bg-[#0D0D0E] border-[#27272A]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                  <div className="text-xs font-bold text-white mb-2">When matching existing Employee ID:</div>
+                  <div className={`text-xs font-bold mb-2 ${isDark ? 'text-white' : 'text-black'}`}>When matching existing Employee ID:</div>
                   <div className="space-y-2">
-                    <label className="flex items-start space-x-2 text-xs text-zinc-300 cursor-pointer">
+                    <label className={`flex items-start space-x-2 text-xs cursor-pointer ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                       <input
                         type="radio"
                         name="dupStrategy"
@@ -1698,14 +1720,14 @@ export const ImportView: React.FC<ImportViewProps> = ({
                         className="mt-0.5 text-[#CB1417] focus:ring-0"
                       />
                       <div>
-                        <span className="font-semibold text-white">Update Existing Records (Recommended)</span>
-                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                        <span className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Update Existing Records (Recommended)</span>
+                        <p className={`text-[11px] mt-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                           Updates matched employee profiles with freshly imported fields. Disabled/ignored fields are strictly preserved.
                         </p>
                       </div>
                     </label>
 
-                    <label className="flex items-start space-x-2 text-xs text-zinc-300 cursor-pointer">
+                    <label className={`flex items-start space-x-2 text-xs cursor-pointer ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                       <input
                         type="radio"
                         name="dupStrategy"
@@ -1714,8 +1736,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
                         className="mt-0.5 text-[#CB1417] focus:ring-0"
                       />
                       <div>
-                        <span className="font-semibold text-white">Skip Duplicate Records</span>
-                        <p className="text-[11px] text-zinc-400 mt-0.5">
+                        <span className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Skip Duplicate Records</span>
+                        <p className={`text-[11px] mt-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                           Retains current stored data completely; only imports completely new employee IDs.
                         </p>
                       </div>
@@ -1725,8 +1747,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
 
                 {/* Overwrite with Blank Cells Toggle */}
                 <div className={`p-4 rounded-lg border ${isDark ? 'bg-[#0D0D0E] border-[#27272A]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                  <div className="text-xs font-bold text-white mb-2">Blank / Empty Cell Handling:</div>
-                  <label className="flex items-start space-x-2.5 text-xs text-zinc-300 cursor-pointer">
+                  <div className={`text-xs font-bold mb-2 ${isDark ? 'text-white' : 'text-black'}`}>Blank / Empty Cell Handling:</div>
+                  <label className={`flex items-start space-x-2.5 text-xs cursor-pointer ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                     <input
                       type="checkbox"
                       checked={overwriteEmptyCells}
@@ -1734,9 +1756,9 @@ export const ImportView: React.FC<ImportViewProps> = ({
                       className="mt-0.5 rounded text-[#CB1417] focus:ring-0"
                     />
                     <div>
-                      <span className="font-semibold text-white">Overwrite existing values with blank Excel cells</span>
-                      <p className="text-[11px] text-zinc-400 mt-0.5">
-                        Default is <strong className="text-emerald-400">OFF</strong>. When OFF, an empty Excel cell will never erase or clear pre-existing employee data.
+                      <span className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Overwrite existing values with blank Excel cells</span>
+                      <p className={`text-[11px] mt-0.5 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                        Default is <strong className="text-emerald-500">OFF</strong>. When OFF, an empty Excel cell will never erase or clear pre-existing employee data.
                       </p>
                     </div>
                   </label>
@@ -1750,8 +1772,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
                 <Clock className="w-4 h-4" />
                 <span>Loss of Pay (LOP) Workflow & Precedence</span>
               </h3>
-              <p className="text-xs text-zinc-400">
-                Employee Database Studio strictly separates <strong className="text-white">LOP Days</strong> (attendance count) from <strong className="text-white">LOP Amount</strong> (deduction currency). Choose the authoritative source for this payroll run:
+              <p className={`text-xs ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
+                Employee Database Studio strictly separates <strong className={isDark ? 'text-white' : 'text-black'}>LOP Days</strong> (attendance count) from <strong className={isDark ? 'text-white' : 'text-black'}>LOP Amount</strong> (deduction currency). Choose the authoritative source for this payroll run:
               </p>
 
               <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
@@ -1763,8 +1785,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
                       : isDark ? 'bg-[#0D0D0E] border-[#27272A]' : 'bg-[#FAFAFC] border-[#E4E4E7]'
                   }`}
                 >
-                  <div className="font-bold text-xs text-white">1. Imported from Excel (Authoritative)</div>
-                  <p className="text-[11px] text-zinc-400 mt-1">
+                  <div className={`font-bold text-xs ${isDark ? 'text-white' : 'text-black'}`}>1. Imported from Excel (Authoritative)</div>
+                  <p className={`text-[11px] mt-1 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                     Uses the exact LOP values provided in the spreadsheet without silently recalculating.
                   </p>
                 </div>
@@ -1777,8 +1799,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
                       : isDark ? 'bg-[#0D0D0E] border-[#27272A]' : 'bg-[#FAFAFC] border-[#E4E4E7]'
                   }`}
                 >
-                  <div className="font-bold text-xs text-white">2. Calculated from Attendance</div>
-                  <p className="text-[11px] text-zinc-400 mt-1">
+                  <div className={`font-bold text-xs ${isDark ? 'text-white' : 'text-black'}`}>2. Calculated from Attendance</div>
+                  <p className={`text-[11px] mt-1 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                     Calculates LOP Amount based on (Gross / Total Working Days) * LOP Days.
                   </p>
                 </div>
@@ -1791,8 +1813,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
                       : isDark ? 'bg-[#0D0D0E] border-[#27272A]' : 'bg-[#FAFAFC] border-[#E4E4E7]'
                   }`}
                 >
-                  <div className="font-bold text-xs text-white">3. Manual HR Entry</div>
-                  <p className="text-[11px] text-zinc-400 mt-1">
+                  <div className={`font-bold text-xs ${isDark ? 'text-white' : 'text-black'}`}>3. Manual HR Entry</div>
+                  <p className={`text-[11px] mt-1 ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                     Preserves values manually entered by HR in the Validation & Records editor.
                   </p>
                 </div>
@@ -1800,8 +1822,8 @@ export const ImportView: React.FC<ImportViewProps> = ({
 
               {/* Ambiguous LOP Disambiguation Prompt if file contains generic "LOP" */}
               {hasAmbiguousLop && (
-                <div className="p-4 rounded-lg border border-amber-500/30 bg-amber-500/10 text-xs text-amber-300 space-y-2">
-                  <div className="font-bold flex items-center space-x-2 text-amber-400">
+                <div className={`p-4 rounded-lg border text-xs space-y-2 ${isDark ? 'border-amber-500/30 bg-amber-500/10 text-amber-300' : 'border-amber-300 bg-amber-50 text-amber-900'}`}>
+                  <div className="font-bold flex items-center space-x-2 text-amber-500">
                     <AlertTriangle className="w-4 h-4" />
                     <span>Ambiguous Column &quot;LOP&quot; Detected in Spreadsheet</span>
                   </div>
@@ -1817,7 +1839,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                         onChange={() => setAmbiguousLopChoice('days')}
                         className="text-[#CB1417] focus:ring-0"
                       />
-                      <span className="font-semibold text-white">Loss of Pay Days (0-31 days)</span>
+                      <span className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Loss of Pay Days (0-31 days)</span>
                     </label>
 
                     <label className="flex items-center space-x-1.5 cursor-pointer">
@@ -1828,7 +1850,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                         onChange={() => setAmbiguousLopChoice('amount')}
                         className="text-[#CB1417] focus:ring-0"
                       />
-                      <span className="font-semibold text-white">Loss of Pay Deduction Amount (Rs.)</span>
+                      <span className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Loss of Pay Deduction Amount</span>
                     </label>
                   </div>
                 </div>
@@ -1866,41 +1888,41 @@ export const ImportView: React.FC<ImportViewProps> = ({
             {/* Preview Summary Metrics Bar */}
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-6 gap-3">
               <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                <div className="text-[10px] text-zinc-400">Total Rows</div>
-                <div className="text-base font-bold text-white mt-0.5">{previewRecords.length}</div>
+                <div className="text-[10px] text-zinc-500">Total Rows</div>
+                <div className={`text-base font-bold mt-0.5 tabular-nums ${isDark ? 'text-white' : 'text-black'}`}>{previewRecords.length}</div>
               </div>
 
               <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                <div className="text-[10px] text-zinc-400">To Import</div>
-                <div className="text-base font-bold text-emerald-400 mt-0.5">
+                <div className="text-[10px] text-zinc-500">To Import</div>
+                <div className="text-base font-bold text-emerald-500 mt-0.5 tabular-nums">
                   {previewRecords.length - excludedRowIndices.size}
                 </div>
               </div>
 
               <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                <div className="text-[10px] text-zinc-400">Excluded Rows</div>
-                <div className="text-base font-bold text-zinc-400 mt-0.5">
+                <div className="text-[10px] text-zinc-500">Excluded Rows</div>
+                <div className="text-base font-bold text-zinc-500 mt-0.5 tabular-nums">
                   {excludedRowIndices.size}
                 </div>
               </div>
 
               <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                <div className="text-[10px] text-zinc-400">Fields Fetched</div>
-                <div className="text-base font-bold text-blue-400 mt-0.5">
+                <div className="text-[10px] text-zinc-500">Fields Fetched</div>
+                <div className="text-base font-bold text-blue-500 mt-0.5 tabular-nums">
                   {columnControls.filter(c => c.fetch).length}
                 </div>
               </div>
 
               <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                <div className="text-[10px] text-zinc-400">Ignored Fields</div>
-                <div className="text-base font-bold text-zinc-500 mt-0.5">
+                <div className="text-[10px] text-zinc-500">Ignored Fields</div>
+                <div className="text-base font-bold text-zinc-500 mt-0.5 tabular-nums">
                   {columnControls.filter(c => !c.fetch).length}
                 </div>
               </div>
 
               <div className={`p-3 rounded-xl border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'}`}>
-                <div className="text-[10px] text-zinc-400">Custom Fields</div>
-                <div className="text-base font-bold text-purple-400 mt-0.5">
+                <div className="text-[10px] text-zinc-500">Custom Fields</div>
+                <div className="text-base font-bold text-purple-500 mt-0.5 tabular-nums">
                   {customFieldDefs.filter(f => columnControls.some(c => c.suggestedField === f.key && c.fetch)).length}
                 </div>
               </div>
@@ -1921,7 +1943,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                 />
               </div>
 
-              <div className="text-xs text-zinc-400">
+              <div className="text-xs text-zinc-500">
                 Uncheck a row to exclude it from the final import batch.
               </div>
             </div>
@@ -1937,9 +1959,10 @@ export const ImportView: React.FC<ImportViewProps> = ({
                       <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">Name</th>
                       <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">Department</th>
                       <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">Bank Details</th>
-                      <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">ESI Number</th>
-                      <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">Basic</th>
+                      <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">ESI / PF</th>
+                      <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">CTC</th>
                       <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">Gross</th>
+                      <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">Deductions</th>
                       <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">LOP Info</th>
                       <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">Net Pay</th>
                       <th className="p-2.5 border-b dark:border-[#222226] border-[#E4E4E7]">Validation</th>
@@ -1966,7 +1989,7 @@ export const ImportView: React.FC<ImportViewProps> = ({
                             key={rec.id || idx}
                             className={`${
                               isExcluded
-                                ? 'opacity-35 bg-zinc-950'
+                                ? isDark ? 'opacity-35 bg-zinc-950' : 'opacity-40 bg-zinc-100'
                                 : isDark ? 'hover:bg-[#121214]' : 'hover:bg-[#F8F9FA]'
                             }`}
                           >
@@ -1985,81 +2008,89 @@ export const ImportView: React.FC<ImportViewProps> = ({
                             </td>
 
                             {/* Emp ID with preserved leading zeros */}
-                            <td className="p-2.5 font-bold text-white whitespace-nowrap">
+                            <td className={`p-2.5 font-bold whitespace-nowrap ${isDark ? 'text-white' : 'text-black'}`}>
                               {rec.employeeId}
                             </td>
 
                             {/* Name */}
-                            <td className="p-2.5 font-sans font-semibold text-white truncate max-w-[150px]">
+                            <td className={`p-2.5 font-sans font-semibold truncate max-w-[150px] ${isDark ? 'text-white' : 'text-black'}`}>
                               {rec.name}
                             </td>
 
                             {/* Department */}
-                            <td className="p-2.5 font-sans text-zinc-400">
+                            <td className={`p-2.5 font-sans ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                               {rec.department || '-'}
                             </td>
 
                             {/* Bank Details */}
-                            <td className="p-2.5 text-zinc-300 whitespace-nowrap">
+                            <td className={`p-2.5 whitespace-nowrap ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
                               {rec.bankAccount ? (
                                 <div className="text-[10px]">
-                                  <span className="font-mono text-emerald-400">{rec.bankAccount}</span>
+                                  <span className="font-mono text-emerald-500">{rec.bankAccount}</span>
                                   {rec.bankName && <span className="text-zinc-500 ml-1">({rec.bankName})</span>}
                                   {rec.ifscCode && <div className="text-zinc-500 font-mono">IFSC: {rec.ifscCode}</div>}
                                 </div>
                               ) : (
-                                <span className="text-zinc-600 italic">None</span>
+                                <span className="text-zinc-500 italic">None</span>
                               )}
                             </td>
 
-                            {/* ESI Number */}
-                            <td className="p-2.5 text-zinc-300 whitespace-nowrap">
-                              {rec.esiNumber ? (
-                                <span className="font-mono text-blue-400">{rec.esiNumber}</span>
+                            {/* ESI / PF */}
+                            <td className={`p-2.5 whitespace-nowrap ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+                              {rec.esiNumber || rec.pfNumber ? (
+                                <div className="text-[10px] font-mono">
+                                  {rec.esiNumber && <span className="text-blue-500">{rec.esiNumber}</span>}
+                                  {rec.pfNumber && <div className="text-zinc-500">PF: {rec.pfNumber}</div>}
+                                </div>
                               ) : (
-                                <span className="text-zinc-600 italic">-</span>
+                                <span className="text-zinc-500 italic">-</span>
                               )}
                             </td>
 
-                            {/* Basic */}
-                            <td className="p-2.5 text-white">
-                              Rs. {rec.basic.toLocaleString('en-IN')}
+                            {/* CTC */}
+                            <td className={`p-2.5 tabular-nums ${isDark ? 'text-zinc-300' : 'text-zinc-700'}`}>
+                              {(rec.ctc || rec.calculatedGross).toLocaleString('en-IN')}
                             </td>
 
                             {/* Gross */}
-                            <td className="p-2.5 text-white font-semibold">
-                              Rs. {rec.calculatedGross.toLocaleString('en-IN')}
+                            <td className={`p-2.5 font-semibold tabular-nums ${isDark ? 'text-white' : 'text-black'}`}>
+                              {rec.calculatedGross.toLocaleString('en-IN')}
+                            </td>
+
+                            {/* Deductions */}
+                            <td className="p-2.5 text-rose-500 tabular-nums">
+                              {rec.calculatedDeductions.toLocaleString('en-IN')}
                             </td>
 
                             {/* LOP Info */}
                             <td className="p-2.5 whitespace-nowrap">
                               {rec.lopDays || rec.lopAmount ? (
                                 <div className="text-[10px]">
-                                  <span className="text-amber-400 font-semibold">{rec.lopDays || 0} Days</span>
-                                  {rec.lopAmount ? <span className="text-zinc-400 ml-1">(Rs. {rec.lopAmount})</span> : null}
+                                  <span className="text-amber-500 font-semibold">{rec.lopDays || 0} Days</span>
+                                  {rec.lopAmount ? <span className="text-zinc-500 ml-1">({rec.lopAmount})</span> : null}
                                 </div>
                               ) : (
-                                <span className="text-zinc-600">0</span>
+                                <span className="text-zinc-500">0</span>
                               )}
                             </td>
 
                             {/* Net Pay */}
-                            <td className="p-2.5 text-emerald-400 font-bold whitespace-nowrap">
-                              Rs. {rec.calculatedNet.toLocaleString('en-IN')}
+                            <td className="p-2.5 text-emerald-500 font-bold whitespace-nowrap tabular-nums">
+                              {rec.calculatedNet.toLocaleString('en-IN')}
                             </td>
 
                             {/* Validation issues */}
                             <td className="p-2.5">
                               {hasLopConflict ? (
-                                <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20 font-semibold">
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-amber-500/10 text-amber-500 border border-amber-500/20 font-semibold">
                                   LOP Review
                                 </span>
                               ) : rec.isValid ? (
-                                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-400">
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-emerald-500/10 text-emerald-500">
                                   Valid
                                 </span>
                               ) : (
-                                <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-400" title={rec.issues.map(i => i.message).join(', ')}>
+                                <span className="text-[10px] px-2 py-0.5 rounded bg-red-500/10 text-red-500" title={rec.issues.map(i => i.message).join(', ')}>
                                   {rec.issues.length} Issues
                                 </span>
                               )}
@@ -2108,34 +2139,34 @@ export const ImportView: React.FC<ImportViewProps> = ({
             <div className={`p-6 rounded-2xl border text-center space-y-3 ${
               isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#FAFAFC] border-[#E4E4E7]'
             }`}>
-              <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 flex items-center justify-center mx-auto">
+              <div className="w-14 h-14 rounded-2xl bg-emerald-500/10 border border-emerald-500/30 text-emerald-500 flex items-center justify-center mx-auto">
                 <CheckCircle2 className="w-8 h-8" />
               </div>
-              <h3 className="text-lg font-bold text-white">Import Successfully Committed!</h3>
-              <p className="text-xs text-zinc-400 max-w-md mx-auto">
+              <h3 className={`text-lg font-bold ${isDark ? 'text-white' : 'text-black'}`}>Import Successfully Committed!</h3>
+              <p className={`text-xs max-w-md mx-auto ${isDark ? 'text-zinc-400' : 'text-zinc-600'}`}>
                 All authorized employee records, bank details, statutory IDs, LOP values, and custom fields have been saved to local database storage.
               </p>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
               <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#0D0D0E] border-[#222226]' : 'bg-white border-[#E4E4E7]'}`}>
-                <div className="text-[11px] text-zinc-400">Total Processed</div>
-                <div className="text-xl font-bold text-white mt-1">{importSummaryResult.totalProcessed}</div>
+                <div className="text-[11px] text-zinc-500">Total Processed</div>
+                <div className={`text-xl font-bold mt-1 ${isDark ? 'text-white' : 'text-black'}`}>{importSummaryResult.totalProcessed}</div>
               </div>
 
               <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#0D0D0E] border-[#222226]' : 'bg-white border-[#E4E4E7]'}`}>
-                <div className="text-[11px] text-zinc-400">New Directory Records</div>
-                <div className="text-xl font-bold text-emerald-400 mt-1">{importSummaryResult.importedCount}</div>
+                <div className="text-[11px] text-zinc-500">New Directory Records</div>
+                <div className="text-xl font-bold text-emerald-500 mt-1">{importSummaryResult.importedCount}</div>
               </div>
 
               <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#0D0D0E] border-[#222226]' : 'bg-white border-[#E4E4E7]'}`}>
-                <div className="text-[11px] text-zinc-400">Updated Records</div>
-                <div className="text-xl font-bold text-blue-400 mt-1">{importSummaryResult.updatedCount}</div>
+                <div className="text-[11px] text-zinc-500">Updated Records</div>
+                <div className="text-xl font-bold text-blue-500 mt-1">{importSummaryResult.updatedCount}</div>
               </div>
 
               <div className={`p-4 rounded-xl border ${isDark ? 'bg-[#0D0D0E] border-[#222226]' : 'bg-white border-[#E4E4E7]'}`}>
-                <div className="text-[11px] text-zinc-400">Custom Fields Saved</div>
-                <div className="text-xl font-bold text-purple-400 mt-1">{importSummaryResult.customFieldsSaved}</div>
+                <div className="text-[11px] text-zinc-500">Custom Fields Saved</div>
+                <div className="text-xl font-bold text-purple-500 mt-1">{importSummaryResult.customFieldsSaved}</div>
               </div>
             </div>
 

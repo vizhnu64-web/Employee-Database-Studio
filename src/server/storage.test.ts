@@ -2,287 +2,76 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
+import http from 'node:http';
 import {
-  supabaseStorage,
-  SupabaseStorageService,
-  StorageServiceError,
-  STORAGE_BUCKETS,
-} from './storage/supabaseStorage';
+  buildCanonicalDriveFolderUrl,
+  createGoogleDriveClient,
+  extractDriveFolderId,
+  GoogleDriveError,
+} from './services/googleDrive';
+import { app } from '../../server';
 
-test('SupabaseStorageService path sanitization', () => {
-  const dirty = '..//company_1/employee\\1004/../records/aadhaar .pdf';
-  const clean = supabaseStorage.sanitizeStoragePath(dirty);
-  assert.ok(clean.includes('company_1'));
-  assert.ok(!clean.includes('..'));
-});
-
-test('SupabaseStorageService structured path generation across 4 private buckets', () => {
-  const companyId = 1;
-
-  // 1. employee-documents
-  const empPath = supabaseStorage.buildStructuredPath({
-    companyId,
-    bucket: STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS,
-    employeeId: 'TBT1004',
-    documentType: 'ID Proof',
-    fileName: 'Aadhaar Card.pdf'
+function startStorageTestServer(): Promise<{ server: http.Server; baseUrl: string }> {
+  return new Promise((resolve) => {
+    const server = http.createServer(app);
+    server.listen(0, '127.0.0.1', () => {
+      const addr = server.address() as { port: number };
+      resolve({ server, baseUrl: `http://127.0.0.1:${addr.port}` });
+    });
   });
-  assert.ok(empPath.startsWith('1/TBT1004/ID_Proof/'));
-  assert.ok(empPath.endsWith('_Aadhaar_Card.pdf'));
+}
 
-  // 2. company-assets
-  const assetPath = supabaseStorage.buildStructuredPath({
-    companyId,
-    bucket: STORAGE_BUCKETS.COMPANY_ASSETS,
-    documentType: 'branding',
-    fileName: 'Company Logo.png'
-  });
-  assert.ok(assetPath.startsWith('1/assets/branding/'));
-  assert.ok(assetPath.endsWith('_Company_Logo.png'));
-
-  // 3. payslip-pdfs
-  const payslipPath = supabaseStorage.buildStructuredPath({
-    companyId,
-    bucket: STORAGE_BUCKETS.PAYSLIP_PDFS,
-    employeeId: 'TBT1004',
-    year: 2026,
-    month: 'October',
-    fileName: 'Payslip_TBT1004.pdf'
-  });
-  assert.ok(payslipPath.startsWith('1/payslips/2026/October/TBT1004/'));
-
-  // 4. import-files
-  const importPath = supabaseStorage.buildStructuredPath({
-    companyId,
-    bucket: STORAGE_BUCKETS.IMPORT_FILES,
-    year: 2026,
-    month: 'October',
-    fileName: 'Employees_Master.xlsx'
-  });
-  assert.ok(importPath.startsWith('1/imports/2026/October/'));
-});
-
-test('SupabaseStorageService initializes without disk writes and returns 503 when unconfigured', async () => {
-  const os = await import('node:os');
-  const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'eds-storage-test-'));
-  const prevCwd = process.cwd();
-  try {
-    process.chdir(tmpRoot);
-    const fallbackDir = path.resolve(tmpRoot, 'data', 'storage_fallback');
-    const service = new SupabaseStorageService(null, '');
-
-    assert.equal(service.isConfigured(), false);
-    assert.equal(fs.existsSync(fallbackDir), false, 'Should never create data/storage_fallback on disk');
-
-    await assert.rejects(
-      () => service.uploadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/doc.txt', Buffer.from('abc'), 'text/plain'),
-      (err: any) => err instanceof StorageServiceError && err.statusCode === 503
-    );
-    assert.equal(fs.existsSync(fallbackDir), false, 'Failed upload must never create local fallback folder');
-  } finally {
-    process.chdir(prevCwd);
-    fs.rmSync(tmpRoot, { recursive: true, force: true });
-  }
-
-  const service = new SupabaseStorageService(null, '');
-
-  await assert.rejects(
-    () => service.createSignedUrl(STORAGE_BUCKETS.PAYSLIP_PDFS, '1/payslips/test.pdf', 300),
-    (err: any) => err instanceof StorageServiceError && err.statusCode === 503
+test('Google Drive service enforces access token and builds canonical folder URLs', () => {
+  assert.throws(
+    () => createGoogleDriveClient(''),
+    (err: any) => err instanceof GoogleDriveError && err.statusCode === 401
   );
 
-  await assert.rejects(
-    () => service.downloadObject(STORAGE_BUCKETS.IMPORT_FILES, '1/imports/test.xlsx'),
-    (err: any) => err instanceof StorageServiceError && err.statusCode === 503
-  );
+  const client = createGoogleDriveClient('ya29.test_access_token', 'https://drive.google.com/drive/folders/1FolderAlphaBeta123');
+  assert.equal(client.rootFolderId, '1FolderAlphaBeta123');
+  assert.equal(client.folderUrl, 'https://drive.google.com/drive/folders/1FolderAlphaBeta123');
+  assert.equal(buildCanonicalDriveFolderUrl('1FolderAlphaBeta123'), 'https://drive.google.com/drive/folders/1FolderAlphaBeta123');
 });
 
-test('SupabaseStorageService with configured client performs upload, signed url, download, and delete cleanly', async () => {
-  const storedObjects = new Map<string, { buffer: Buffer; mimeType: string }>();
-
-  const mockClient: any = {
-    storage: {
-      from(bucket: string) {
-        return {
-          async upload(objPath: string, buffer: Buffer, options: { contentType: string }) {
-            storedObjects.set(`${bucket}:${objPath}`, { buffer, mimeType: options.contentType });
-            return { data: { fullPath: `${bucket}/${objPath}` }, error: null };
-          },
-          async createSignedUrl(objPath: string, expiresIn: number) {
-            return {
-              data: { signedUrl: `https://example.supabase.co/storage/v1/object/sign/${bucket}/${objPath}?token=test&expires=${expiresIn}` },
-              error: null,
-            };
-          },
-          async download(objPath: string) {
-            const entry = storedObjects.get(`${bucket}:${objPath}`);
-            if (!entry) return { data: null, error: { message: 'Object not found' } };
-            return {
-              data: {
-                type: entry.mimeType,
-                arrayBuffer: async () => entry.buffer.buffer.slice(entry.buffer.byteOffset, entry.buffer.byteOffset + entry.buffer.byteLength),
-              },
-              error: null,
-            };
-          },
-          async remove(paths: string[]) {
-            for (const p of paths) storedObjects.delete(`${bucket}:${p}`);
-            return { data: [], error: null };
-          },
-        };
-      },
-    },
-  };
-
-  const service = new SupabaseStorageService(mockClient, 'https://example.supabase.co');
-  assert.equal(service.isConfigured(), true);
-
-  const bucket = STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS;
-  const storagePath = '1/test_emp/records/test_doc.txt';
-  const testBuffer = Buffer.from('Employee Database Studio Secure Document Test Payload', 'utf-8');
-
-  const uploadRes = await service.uploadObject(bucket, storagePath, testBuffer, 'text/plain');
-  assert.equal(uploadRes.path, storagePath);
-
-  const signedUrl = await service.createSignedUrl(bucket, uploadRes.path, 120);
-  assert.ok(signedUrl.includes('https://example.supabase.co/storage/v1/object/sign/'));
-
-  const downloadRes = await service.downloadObject(bucket, uploadRes.path);
-  assert.equal(downloadRes.buffer.toString('utf-8'), 'Employee Database Studio Secure Document Test Payload');
-  assert.equal(downloadRes.mimeType, 'text/plain');
-
-  const deleted = await service.deleteObject(bucket, uploadRes.path);
-  assert.equal(deleted, true);
+test('extractDriveFolderId rejects invalid or non-folder URLs cleanly', () => {
+  assert.equal(extractDriveFolderId(''), null);
+  assert.equal(extractDriveFolderId('https://docs.google.com/spreadsheets/d/1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms/edit'), null);
+  assert.equal(extractDriveFolderId('https://drive.google.com/drive/folders/1MyFolderId_98765?usp=share_link'), '1MyFolderId_98765');
 });
 
-test('supabaseStorage.ts contains zero fs imports or synchronous filesystem operations', () => {
-  const sourcePath = path.resolve(process.cwd(), 'src', 'server', 'storage', 'supabaseStorage.ts');
-  const source = fs.readFileSync(sourcePath, 'utf-8');
-  assert.equal(/\bfrom\s+['"](?:node:)?fs(?:\/promises)?['"]/.test(source), false);
-  assert.equal(/\bmkdirSync\b|\bwriteFileSync\b|\bexistsSync\b|\bappendFileSync\b/.test(source), false);
-});
+test('Server Drive, Documents, and Backup modules contain zero local disk fallback writes', () => {
+  const filesToCheck = [
+    path.resolve(process.cwd(), 'src', 'server', 'services', 'googleDrive.ts'),
+    path.resolve(process.cwd(), 'src', 'server', 'services', 'googleSheets.ts'),
+    path.resolve(process.cwd(), 'src', 'server', 'routes', 'documents.ts'),
+    path.resolve(process.cwd(), 'src', 'server', 'routes', 'backup.ts'),
+  ];
 
-test('SupabaseStorageService verifies SUPABASE_URL presence, format, and lazy env updates cleanly', async () => {
-  const prevUrl = process.env.SUPABASE_URL;
-  const prevServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const prevSecretKey = process.env.SUPABASE_SECRET_KEY;
-  const prevAnonKey = process.env.SUPABASE_ANON_KEY;
-
-  try {
-    // 1. Missing SUPABASE_URL even when key exists
-    delete process.env.SUPABASE_URL;
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'test-service-role-key';
-    delete process.env.SUPABASE_SECRET_KEY;
-    delete process.env.SUPABASE_ANON_KEY;
-
-    const service = new SupabaseStorageService();
-    const missingUrlStatus = service.verifyConfiguration();
-    assert.equal(missingUrlStatus.configured, false);
-    assert.match(missingUrlStatus.error || '', /SUPABASE_URL/);
-    assert.equal(service.isConfigured(), false);
-
-    await assert.rejects(
-      () => service.uploadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf', Buffer.from('x'), 'application/pdf'),
-      (err: any) => err instanceof StorageServiceError && err.statusCode === 503 && /SUPABASE_URL/.test(err.message)
-    );
-
-    // 2. Invalid SUPABASE_URL format
-    process.env.SUPABASE_URL = 'not-a-valid-url';
-    const invalidStatus = service.verifyConfiguration();
-    assert.equal(invalidStatus.configured, false);
-    assert.match(invalidStatus.error || '', /valid HTTP or HTTPS URL/);
-
-    // 3. Valid quoted SUPABASE_URL set after instantiation (simulates dotenv.config after module import)
-    process.env.SUPABASE_URL = '"https://my-company-proj.supabase.co"';
-    const validStatus = service.verifyConfiguration();
-    assert.equal(validStatus.configured, true);
-    assert.equal(validStatus.supabaseUrl, 'https://my-company-proj.supabase.co');
-    assert.equal(validStatus.error, null);
-    assert.equal(service.isConfigured(), true);
-    assert.equal(service.getSupabaseUrl(), 'https://my-company-proj.supabase.co');
-
-    // 4. Empty path after sanitization returns controlled 400 error
-    await assert.rejects(
-      () => service.uploadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '../..//', Buffer.from('x'), 'application/pdf'),
-      (err: any) => err instanceof StorageServiceError && err.statusCode === 400
-    );
-  } finally {
-    if (prevUrl !== undefined) process.env.SUPABASE_URL = prevUrl;
-    else delete process.env.SUPABASE_URL;
-    if (prevServiceKey !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = prevServiceKey;
-    else delete process.env.SUPABASE_SERVICE_ROLE_KEY;
-    if (prevSecretKey !== undefined) process.env.SUPABASE_SECRET_KEY = prevSecretKey;
-    else delete process.env.SUPABASE_SECRET_KEY;
-    if (prevAnonKey !== undefined) process.env.SUPABASE_ANON_KEY = prevAnonKey;
-    else delete process.env.SUPABASE_ANON_KEY;
-    supabaseStorage.initClient();
+  for (const filePath of filesToCheck) {
+    const source = fs.readFileSync(filePath, 'utf-8');
+    assert.equal(/\bfrom\s+['"](?:node:)?fs(?:\/promises)?['"]/.test(source), false, `Unexpected fs import in ${filePath}`);
+    assert.equal(/\bmkdirSync\b|\bwriteFileSync\b|\bappendFileSync\b/.test(source), false, `Unexpected sync disk write in ${filePath}`);
   }
 });
 
-test('SupabaseStorageService converts unexpected SDK rejections into controlled StorageServiceError', async () => {
-  const failingClient: any = {
-    storage: {
-      from() {
-        return {
-          async upload() {
-            throw new Error('Network socket hang up');
-          },
-          async createSignedUrl() {
-            throw new Error('Signed URL timeout');
-          },
-          async download() {
-            throw new Error('Download connection reset');
-          },
-          async remove() {
-            throw new Error('Delete connection reset');
-          },
-        };
-      },
-    },
-  };
-
-  const service = new SupabaseStorageService(failingClient, 'https://example.supabase.co');
-  await assert.rejects(
-    () => service.uploadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf', Buffer.from('x'), 'application/pdf'),
-    (err: any) => err instanceof StorageServiceError && err.statusCode === 502 && /Network socket hang up/.test(err.message)
-  );
-  await assert.rejects(
-    () => service.createSignedUrl(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf', 300),
-    (err: any) => err instanceof StorageServiceError && err.statusCode === 502
-  );
-  await assert.rejects(
-    () => service.downloadObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf'),
-    (err: any) => err instanceof StorageServiceError && err.statusCode === 502
-  );
-  await assert.rejects(
-    () => service.deleteObject(STORAGE_BUCKETS.EMPLOYEE_DOCUMENTS, '1/emp/a.pdf'),
-    (err: any) => err instanceof StorageServiceError && err.statusCode === 502
-  );
-});
-
-test('SupabaseStorageService lazily initializes client only on first access, never on construction/import', () => {
-  const prevUrl = process.env.SUPABASE_URL;
-  const prevKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-
+test('Document, Drive, Logo, and Backup endpoints enforce Bearer Google OAuth cleanly', async () => {
+  const { server, baseUrl } = await startStorageTestServer();
   try {
-    process.env.SUPABASE_URL = 'https://lazy-init-proj.supabase.co';
-    process.env.SUPABASE_SERVICE_ROLE_KEY = 'lazy-init-key';
+    const unauthDocs = await fetch(`${baseUrl}/api/documents/EMP001`);
+    assert.equal(unauthDocs.status, 401);
 
-    const service = new SupabaseStorageService();
-    // Before any operation or status check, client and env signature remain uninitialized
-    assert.equal((service as any).client, null);
-    assert.equal((service as any).isClientInitialized, false);
-    assert.equal((service as any).lastEnvSignature, null);
+    const unauthUpload = await fetch(`${baseUrl}/api/documents/upload`, { method: 'POST' });
+    assert.equal(unauthUpload.status, 401);
 
-    // First check triggers lazy initialization cleanly in memory
-    assert.equal(service.isConfigured(), true);
-    assert.notEqual((service as any).client, null);
-    assert.equal((service as any).isClientInitialized, true);
-    assert.equal(service.getSupabaseUrl(), 'https://lazy-init-proj.supabase.co');
+    const unauthDriveFiles = await fetch(`${baseUrl}/api/drive/files`);
+    assert.equal(unauthDriveFiles.status, 401);
+
+    const unauthLogo = await fetch(`${baseUrl}/api/settings/logo`, { method: 'POST' });
+    assert.equal(unauthLogo.status, 401);
+
+    const unauthBackup = await fetch(`${baseUrl}/api/backup/export`);
+    assert.equal(unauthBackup.status, 401);
   } finally {
-    if (prevUrl !== undefined) process.env.SUPABASE_URL = prevUrl;
-    else delete process.env.SUPABASE_URL;
-    if (prevKey !== undefined) process.env.SUPABASE_SERVICE_ROLE_KEY = prevKey;
-    else delete process.env.SUPABASE_SERVICE_ROLE_KEY;
+    await new Promise<void>((resolve) => server.close(() => resolve()));
   }
 });

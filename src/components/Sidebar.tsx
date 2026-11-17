@@ -3,44 +3,29 @@ import {
   LayoutDashboard,
   FileSpreadsheet,
   Users,
-  CheckCircle2,
   FileText,
-  Archive,
+  Sliders,
   History,
   Settings,
-  Database,
-  Calendar,
-  Sliders,
   Mail,
   Contact,
-  LogOut,
-  KeyRound,
-  User as UserIcon,
-  Server,
-  Shield
+  Calculator,
+  Calendar
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { YearSelector } from './YearSelector';
-import { AuthUser } from '../utils/apiClient';
 
 export type ActiveTab =
   | 'dashboard'
   | 'directory'
   | 'import'
   | 'records'
-  | 'validation'
+  | 'manual_payslip'
   | 'generator'
-  | 'export'
-  | 'history'
   | 'layout'
   | 'email'
-  | 'settings'
-  | 'server_admin'
-  | 'client_connection'
-  | 'users'
-  | 'attendance'
-  | 'backup'
-  | 'license';
+  | 'history'
+  | 'settings';
 
 interface SidebarProps {
   activeTab: ActiveTab;
@@ -53,9 +38,6 @@ interface SidebarProps {
   setSelectedMonth: (month: string) => void;
   selectedYear: number;
   setSelectedYear: (year: number) => void;
-  currentUser?: AuthUser | null;
-  onLogout?: () => void;
-  onOpenChangePassword?: () => void;
   isMobileOpen?: boolean;
   onCloseMobile?: () => void;
 }
@@ -64,31 +46,22 @@ export const Sidebar: React.FC<SidebarProps> = ({
   activeTab,
   setActiveTab,
   totalEmployees,
-  invalidCount,
   historyCount,
   directoryCount = 0,
   selectedMonth,
   setSelectedMonth,
   selectedYear,
   setSelectedYear,
-  currentUser,
-  onLogout,
-  onOpenChangePassword,
   isMobileOpen,
   onCloseMobile
 }) => {
   const { isDark } = useTheme();
-  const userRole = currentUser?.role || '';
-  const normalizedRole = userRole.toLowerCase();
-  const isAdmin = Boolean(currentUser && (normalizedRole === 'admin' || normalizedRole === 'super_admin' || normalizedRole === 'company_admin'));
 
-  // Role-based visible tab definitions
-  const allWorkspaceNav = [
+  const workspaceNav = [
     {
       id: 'dashboard' as ActiveTab,
       label: 'Dashboard',
       icon: LayoutDashboard,
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'hr', 'hr_manager', 'hr_executive', 'payroll', 'payroll_manager', 'payroll_executive', 'readonly']
     },
     {
       id: 'directory' as ActiveTab,
@@ -96,47 +69,38 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: Contact,
       badge: directoryCount > 0 ? String(directoryCount) : undefined,
       badgeColor: isDark ? 'bg-[#18181B] text-[#D4D4D8]' : 'bg-[#E4E4E7] text-[#27272A]',
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'hr', 'hr_manager', 'hr_executive', 'readonly']
-    },
-    {
-      id: 'attendance' as ActiveTab,
-      label: 'Attendance Management',
-      icon: Calendar,
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'hr', 'hr_manager', 'hr_executive']
     },
     {
       id: 'import' as ActiveTab,
-      label: 'Import & Map',
+      label: 'Excel Import',
       icon: FileSpreadsheet,
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
       id: 'records' as ActiveTab,
-      label: 'Payroll Batch',
+      label: 'Payroll Processing',
       icon: Users,
       badge: totalEmployees > 0 ? String(totalEmployees) : undefined,
       badgeColor: isDark ? 'bg-[#18181B] text-[#D4D4D8]' : 'bg-[#E4E4E7] text-[#27272A]',
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
-      id: 'validation' as ActiveTab,
-      label: 'Math & Validation',
-      icon: CheckCircle2,
-      badge: invalidCount > 0 ? String(invalidCount) : undefined,
-      badgeColor: invalidCount > 0 ? 'bg-amber-500/15 text-amber-500 border border-amber-500/30' : undefined,
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
+      id: 'manual_payslip' as ActiveTab,
+      label: 'Manual Payslip',
+      icon: Calculator,
     },
     {
       id: 'generator' as ActiveTab,
       label: 'Payslip Generator',
       icon: FileText,
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
-      id: 'export' as ActiveTab,
-      label: 'Export Center',
-      icon: Archive,
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
+      id: 'layout' as ActiveTab,
+      label: 'Layout Customizer',
+      icon: Sliders,
+    },
+    {
+      id: 'email' as ActiveTab,
+      label: 'Email Delivery',
+      icon: Mail,
     },
     {
       id: 'history' as ActiveTab,
@@ -144,63 +108,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
       icon: History,
       badge: historyCount > 0 ? String(historyCount) : undefined,
       badgeColor: isDark ? 'bg-[#18181B] text-[#D4D4D8]' : 'bg-[#E4E4E7] text-[#27272A]',
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive', 'readonly']
-    },
-    {
-      id: 'layout' as ActiveTab,
-      label: 'Layout Customizer',
-      icon: Sliders,
-      allowedRoles: ['admin', 'super_admin', 'company_admin']
-    },
-    {
-      id: 'email' as ActiveTab,
-      label: 'Email Delivery',
-      icon: Mail,
-      allowedRoles: ['admin', 'super_admin', 'company_admin', 'payroll', 'payroll_manager', 'payroll_executive']
     },
     {
       id: 'settings' as ActiveTab,
       label: 'Company Settings',
       icon: Settings,
-      allowedRoles: ['admin', 'super_admin', 'company_admin']
     }
   ];
-
-  const allAdminNav = [
-    {
-      id: 'server_admin' as ActiveTab,
-      label: 'Cloud Server Management',
-      icon: Server,
-      allowedRoles: ['admin', 'super_admin', 'company_admin']
-    },
-    {
-      id: 'client_connection' as ActiveTab,
-      label: 'Client & Workspace Access',
-      icon: Shield,
-      allowedRoles: ['admin', 'super_admin', 'company_admin']
-    },
-    {
-      id: 'users' as ActiveTab,
-      label: 'User Management',
-      icon: Users,
-      allowedRoles: ['admin', 'super_admin', 'company_admin']
-    },
-    {
-      id: 'backup' as ActiveTab,
-      label: 'Backup & Restore',
-      icon: Database,
-      allowedRoles: ['admin', 'super_admin', 'company_admin']
-    },
-    {
-      id: 'license' as ActiveTab,
-      label: 'License Management',
-      icon: KeyRound,
-      allowedRoles: ['admin', 'super_admin', 'company_admin']
-    }
-  ];
-
-  const workspaceNav = allWorkspaceNav.filter(item => isAdmin || item.allowedRoles.includes(normalizedRole));
-  const adminNav = allAdminNav.filter(item => isAdmin || item.allowedRoles.includes(normalizedRole));
 
   return (
     <>
@@ -221,189 +135,91 @@ export const Sidebar: React.FC<SidebarProps> = ({
             : 'bg-[#FFFFFF] border-[#E4E4E7]'
         }`}
       >
-      {/* Navigation Links */}
-      <div className="p-3 space-y-4">
-        {/* User Profile Summary Card */}
-        {currentUser && (
-          <div className={`p-3 rounded-xl border flex flex-col space-y-2 ${
-            isDark ? 'bg-[#0E0E10] border-[#222222]' : 'bg-[#F4F4F6] border-[#E4E4E7]'
-          }`}>
-            <div className="flex items-center justify-between">
-              <div className="flex items-center space-x-2 truncate">
-                <div
-                  className="w-7 h-7 rounded-full flex items-center justify-center font-bold text-xs shrink-0 shadow-xs"
-                  style={{ backgroundColor: 'var(--brand-primary)', color: 'var(--brand-primary-text)' }}
-                >
-                  {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
-                </div>
-                <div className="truncate">
-                  <div className="text-xs font-bold truncate leading-tight">{currentUser.fullName}</div>
-                  <div className="text-[10px] text-zinc-500 font-mono">@{currentUser.username}</div>
-                </div>
-              </div>
-              <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full border ${
-                currentUser.role === 'admin'
-                  ? 'bg-blue-500/10 text-blue-500 border-blue-500/30'
-                  : currentUser.role === 'hr'
-                  ? 'bg-emerald-500/10 text-emerald-500 border-emerald-500/30'
-                  : currentUser.role === 'payroll'
-                  ? 'bg-amber-500/10 text-amber-500 border-amber-500/30'
-                  : 'bg-purple-500/10 text-purple-500 border-purple-500/30'
-              }`}>
-                {currentUser.role}
-              </span>
+        {/* Navigation Links */}
+        <div className="p-3 space-y-4">
+          <div className="px-3 py-2 border-b border-zinc-200/70 dark:border-zinc-900">
+            <div className="text-xs font-extrabold tracking-wider uppercase text-brand-primary">
+              Employee Database Studio
             </div>
-
-            <div className="flex items-center justify-between pt-1 border-t dark:border-zinc-800 border-zinc-200 text-[11px]">
-              <button
-                type="button"
-                onClick={onOpenChangePassword}
-                className="text-zinc-500 hover:text-blue-500 flex items-center space-x-1 cursor-pointer"
-                title="Change password"
-              >
-                <KeyRound className="w-3 h-3" />
-                <span>Password</span>
-              </button>
-
-              <button
-                type="button"
-                onClick={onLogout}
-                className="text-rose-500 hover:text-rose-600 font-semibold flex items-center space-x-1 cursor-pointer"
-                title="Log out of session"
-              >
-                <LogOut className="w-3 h-3" />
-                <span>Log Out</span>
-              </button>
-            </div>
+            <div className="text-[11px] text-zinc-500 mt-0.5">HR, Payroll &amp; Google Workspace</div>
           </div>
-        )}
 
-        {/* Workspace Section */}
-        <div className="space-y-1">
-          <div
-            className={`px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider ${
-              isDark ? 'text-[#71717A]' : 'text-[#71717A]'
-            }`}
-          >
-            Payroll Workspace
-          </div>
-          {workspaceNav.map((item) => {
-            const Icon = item.icon;
-            const isActive = activeTab === item.id;
-            return (
-              <button
-                key={item.id}
-                onClick={() => {
-                  setActiveTab(item.id);
-                  if (onCloseMobile) onCloseMobile();
-                }}
-                style={isActive ? { backgroundColor: 'var(--brand-primary)', color: 'var(--brand-primary-text)' } : undefined}
-                className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition cursor-pointer ${
-                  isActive
-                    ? 'font-semibold shadow-sm'
-                    : isDark
-                    ? 'text-[#D4D4D8] hover:bg-[#141414] hover:text-white'
-                    : 'text-[#27272A] hover:bg-[#F4F4F6] hover:text-black'
-                }`}
-              >
-                <div className="flex items-center space-x-2.5 truncate">
-                  <Icon
-                    className={`w-4 h-4 ${isActive ? '' : isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}
-                    style={isActive ? { color: 'var(--brand-primary-text)' } : undefined}
-                  />
-                  <span className="truncate">{item.label}</span>
-                </div>
-                {item.badge && (
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full tabular-nums ${item.badgeColor}`}>
-                    {item.badge}
-                  </span>
-                )}
-              </button>
-            );
-          })}
-        </div>
-
-        {/* Network & Administration Section */}
-        {adminNav.length > 0 && (
-          <div className="space-y-1 pt-3 border-t dark:border-[#222222] border-[#E4E4E7]">
-            <div
-              className={`px-3 py-1.5 text-[11px] font-semibold uppercase tracking-wider ${
-                isDark ? 'text-[#71717A]' : 'text-[#71717A]'
-              }`}
-            >
-              Network & Administration
-            </div>
-            {adminNav.map((item) => {
+          <nav aria-label="Workspace Navigation" className="space-y-1">
+            {workspaceNav.map((item) => {
               const Icon = item.icon;
               const isActive = activeTab === item.id;
               return (
                 <button
                   key={item.id}
+                  type="button"
                   onClick={() => {
                     setActiveTab(item.id);
                     if (onCloseMobile) onCloseMobile();
                   }}
                   style={isActive ? { backgroundColor: 'var(--brand-primary)', color: 'var(--brand-primary-text)' } : undefined}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-xs font-medium transition cursor-pointer ${
+                  className={`w-full flex items-center justify-between px-3 py-2.5 rounded-xl text-xs font-medium transition cursor-pointer ${
                     isActive
-                      ? 'font-semibold shadow-sm'
+                      ? 'font-bold shadow-sm'
                       : isDark
                       ? 'text-[#D4D4D8] hover:bg-[#141414] hover:text-white'
                       : 'text-[#27272A] hover:bg-[#F4F4F6] hover:text-black'
                   }`}
                 >
-                  <div className="flex items-center space-x-2.5 truncate">
+                  <div className="flex items-center space-x-3 truncate">
                     <Icon
-                      className={`w-4 h-4 ${isActive ? '' : isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}
+                      className={`w-4 h-4 shrink-0 ${isActive ? '' : isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}
                       style={isActive ? { color: 'var(--brand-primary-text)' } : undefined}
                     />
                     <span className="truncate">{item.label}</span>
                   </div>
+                  {item.badge && (
+                    <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full tabular-nums ${
+                      isActive
+                        ? 'bg-white/20 text-white'
+                        : item.badgeColor
+                    }`}>
+                      {item.badge}
+                    </span>
+                  )}
                 </button>
               );
             })}
-          </div>
-        )}
-      </div>
+          </nav>
+        </div>
 
-      {/* Bottom Payroll Period & Connection Widget */}
-      <div
-        className={`p-3 border-t space-y-3 transition-colors ${
-          isDark
-            ? 'border-[#222222] bg-[#0A0A0A]'
-            : 'border-[#E4E4E7] bg-[#F8F9FA]'
-        }`}
-      >
-        {/* Period Selector with Unlimited Year Support */}
+        {/* Bottom Payroll Period Widget */}
         <div
-          className={`rounded-lg p-2.5 border ${
+          className={`p-3 border-t space-y-2.5 transition-colors ${
             isDark
-              ? 'bg-[#111113] border-[#222222]'
-              : 'bg-[#FFFFFF] border-[#E4E4E7]'
+              ? 'border-[#222222] bg-[#0A0A0A]'
+              : 'border-[#E4E4E7] bg-[#F8F9FA]'
           }`}
         >
-          <div className="flex items-center space-x-1.5 text-[11px] font-medium text-[#71717A] mb-1.5">
-            <Calendar className="w-3.5 h-3.5 text-brand-primary" />
-            <span>Payroll Period</span>
+          <div
+            className={`rounded-xl p-2.5 border ${
+              isDark
+                ? 'bg-[#111113] border-[#222222]'
+                : 'bg-[#FFFFFF] border-[#E4E4E7]'
+            }`}
+          >
+            <div className="flex items-center space-x-1.5 text-[11px] font-medium text-[#71717A] mb-1.5">
+              <Calendar className="w-3.5 h-3.5 text-brand-primary" />
+              <span>Payroll Period</span>
+            </div>
+            <YearSelector
+              selectedYear={selectedYear}
+              onYearChange={setSelectedYear}
+              selectedMonth={selectedMonth}
+              onMonthChange={setSelectedMonth}
+            />
           </div>
-          <YearSelector
-            selectedYear={selectedYear}
-            onYearChange={setSelectedYear}
-            selectedMonth={selectedMonth}
-            onMonthChange={setSelectedMonth}
-          />
-        </div>
 
-        {/* Central Server & Application Brand Indicator */}
-        <div className={`flex items-center justify-between text-[11px] px-1 ${isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}>
-          <div className="flex items-center space-x-1.5 truncate">
-            <Database className="w-3.5 h-3.5 text-brand-primary shrink-0" />
-            <span className="truncate font-medium">Employee Database Studio</span>
+          <div className={`flex items-center justify-between text-[11px] px-1 ${isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}>
+            <span className="truncate font-medium">Direct HR Workspace</span>
+            <span className="text-[10px] font-mono font-semibold text-brand-primary">v2.0</span>
           </div>
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" title="Employee Database Studio Cloud Central Server" />
         </div>
-      </div>
-    </aside>
+      </aside>
     </>
   );
 };

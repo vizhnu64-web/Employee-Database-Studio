@@ -3,20 +3,15 @@ import cors from 'cors';
 import path from 'path';
 import dotenv from 'dotenv';
 import rateLimit from 'express-rate-limit';
-import { ensureDatabaseInitialized } from './src/server/db/initSchema';
-import { getDatabaseDiagnostics, pool } from './src/server/db/pool';
-import { supabaseStorage } from './src/server/storage/supabaseStorage';
-import authRoutes from './src/server/routes/auth';
 import settingsRoutes from './src/server/routes/settings';
 import employeeRoutes from './src/server/routes/employees';
 import documentRoutes from './src/server/routes/documents';
 import backupRoutes from './src/server/routes/backup';
-import attendanceRoutes from './src/server/routes/attendance';
-import licenseRoutes from './src/server/routes/license';
-import emailRoutes from './src/server/routes/email';
-import serverStatsRoutes from './src/server/routes/serverStats';
+import emailRoutes, { getResolvedSmtpConfig } from './src/server/routes/email';
 import payrollRoutes from './src/server/routes/payroll';
-import storageRoutes from './src/server/routes/storage';
+import googleAuthRoutes, { getPublicGoogleClientId } from './src/server/routes/googleAuth';
+import sheetsRoutes from './src/server/routes/sheets';
+import driveRoutes from './src/server/routes/drive';
 
 dotenv.config();
 
@@ -30,7 +25,6 @@ app.use(cors());
 app.use(express.json({ limit: '50mb' }));
 app.use(express.urlencoded({ limit: '50mb', extended: true }));
 
-// Rate limiter for general API routes
 const apiLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: 500,
@@ -44,84 +38,58 @@ const apiLimiter = rateLimit({
 });
 app.use('/api/', apiLimiter);
 
-// Health check endpoint (always accessible without crashing, never leaks secrets)
-app.get('/api/health', async (req, res) => {
-  const dbDiag = getDatabaseDiagnostics();
-  let dbReachable = false;
-  let dbError: string | null = dbDiag.configError || null;
-
-  if (dbDiag.configured && !dbDiag.configError) {
-    try {
-      const client = await pool.connect();
-      await client.query('SELECT 1');
-      client.release();
-      dbReachable = true;
-    } catch (err: any) {
-      dbError = err?.message || 'PostgreSQL connection check failed';
-    }
-  }
-
-  const storageConfigured = supabaseStorage.isConfigured();
-  const authConfigured = Boolean(process.env.JWT_SECRET?.trim()) || !dbDiag.productionMode;
-  const healthy = (!dbDiag.productionMode || (dbDiag.configured && dbReachable && authConfigured));
+// Stateless Health Check (never blocks startup or requires external DB)
+app.get('/api/health', (_req, res) => {
+  const clientIdConfigured = Boolean(getPublicGoogleClientId());
+  const smtp = getResolvedSmtpConfig();
 
   res.status(200).json({
-    status: healthy ? 'healthy' : 'degraded',
+    status: 'healthy',
     app: 'Employee Database Studio Enterprise Cloud',
-    version: '1.0.0',
+    version: '3.0.0',
     mode: process.env.NODE_ENV || 'development',
     serverless: process.env.VERCEL === '1',
+    architecture: {
+      database: 'google_sheets',
+      fileStorage: 'google_drive',
+      authentication: 'google_identity_services_client_in_memory',
+      emailProviders: ['gmail_api', 'company_smtp'],
+    },
     checks: {
-      database: {
-        configured: dbDiag.configured,
-        sourceVar: dbDiag.sourceVar,
-        reachable: dbReachable,
-        sslEnabled: dbDiag.sslEnabled,
-        error: dbError,
+      googleOAuth: {
+        configured: clientIdConfigured,
+        authFlow: 'client_gis_in_memory',
       },
-      storage: {
-        provider: storageConfigured ? 'supabase' : 'unconfigured',
-        configured: storageConfigured,
+      googleSheets: {
+        provider: 'google-sheets',
+        statelessProxyReady: true,
       },
-      auth: {
-        jwtConfigured: Boolean(process.env.JWT_SECRET?.trim()),
+      googleDrive: {
+        provider: 'google-drive',
+        statelessProxyReady: true,
+      },
+      smtp: {
+        configured: smtp.isConfigured,
+        verified: smtp.isVerified,
+        source: smtp.source,
       },
     },
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
   });
 });
 
-// Ensure database schema/bootstrap runs safely once per cold start before handling operational API routes
-app.use('/api', async (req, res, next) => {
-  if (req.path === '/health') {
-    return next();
-  }
-  try {
-    await ensureDatabaseInitialized();
-    next();
-  } catch (err: any) {
-    console.error('[Employee Database Studio Cold-Start Init Error]:', err?.message || err);
-    res.status(err?.statusCode || 503).json({
-      success: false,
-      error: err?.message || 'Database service unavailable.'
-    });
-  }
-});
-
-// Central API Routes
-app.use('/api/auth', authRoutes);
-app.use('/api/settings', settingsRoutes);
-app.use('/api/employees', employeeRoutes);
-app.use('/api/documents', documentRoutes);
-app.use('/api/backup', backupRoutes);
-app.use('/api/attendance', attendanceRoutes);
-app.use('/api/license', licenseRoutes);
+// Active Stateless API Routes (Google Workspace + SMTP proxies)
+app.use('/api/google', googleAuthRoutes);
+app.use('/api/sheets', sheetsRoutes);
+app.use('/api/drive', driveRoutes);
 app.use('/api/email', emailRoutes);
-app.use('/api/server', serverStatsRoutes);
+app.use('/api/employees', employeeRoutes);
 app.use('/api/payroll', payrollRoutes);
-app.use('/api/storage', storageRoutes);
+app.use('/api/documents', documentRoutes);
+app.use('/api/settings', settingsRoutes);
+app.use('/api/backup', backupRoutes);
 
-// Controlled JSON error handler (catches multer file limits, malformed JSON, config 503s cleanly)
+// Controlled JSON error handler
 app.use((err: any, req: express.Request, res: express.Response, _next: express.NextFunction) => {
   const status =
     err?.statusCode ||
@@ -134,26 +102,20 @@ app.use((err: any, req: express.Request, res: express.Response, _next: express.N
 });
 
 function checkDeploymentEnvironment() {
-  const missing: string[] = [];
-  if (!process.env.DATABASE_URL?.trim() && !process.env.POSTGRES_URL?.trim()) {
-    missing.push('DATABASE_URL (or POSTGRES_URL)');
-  }
-  if (!process.env.JWT_SECRET?.trim()) {
-    missing.push('JWT_SECRET');
-  }
-  if (!process.env.SUPABASE_URL?.trim() || !process.env.SUPABASE_SERVICE_ROLE_KEY?.trim()) {
-    missing.push('SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY');
-  }
-
-  if (missing.length > 0) {
-    console.warn(`[Employee Database Studio Config] Missing optional/production environment variables: ${missing.join(', ')}.`);
-  }
-
-  const hasSmtp = Boolean(process.env.SMTP_HOST && (process.env.SMTP_SENDER_EMAIL || process.env.SMTP_USER));
-  if (!hasSmtp) {
-    console.log('[Employee Database Studio Email] Initial deployment: SMTP environment variables are not configured. Email service is unconfigured until an authorized administrator configures SMTP in Company Settings.');
+  const googleClientId = getPublicGoogleClientId();
+  if (!googleClientId) {
+    console.warn(
+      '[Employee Database Studio Google Auth] VITE_GOOGLE_CLIENT_ID / GOOGLE_CLIENT_ID is not set. Google Sign-In will stay disabled until a valid OAuth Client ID is configured.'
+    );
   } else {
-    console.log(`[Employee Database Studio Email] Optional SMTP environment configuration detected for host: ${process.env.SMTP_HOST}`);
+    console.log('[Employee Database Studio Google Auth] Public Google OAuth Client ID detected for client-side GIS.');
+  }
+
+  const smtp = getResolvedSmtpConfig();
+  if (!smtp.isConfigured) {
+    console.log('[Employee Database Studio Email] Company SMTP env variables not configured; email delivery will use HR Gmail API or runtime session SMTP.');
+  } else {
+    console.log(`[Employee Database Studio Email] Company SMTP env configuration detected for host: ${smtp.smtpHost}`);
   }
 }
 
@@ -177,23 +139,19 @@ async function startServer() {
   } else {
     const distDir = path.resolve(process.cwd(), 'dist');
     app.use(express.static(distDir));
-    app.get('*', (req, res) => {
+    app.get('*', (_req, res) => {
       res.sendFile(path.resolve(distDir, 'index.html'));
     });
   }
 
   const portNumber = Number(PORT) || 3000;
   const httpServer = app.listen(portNumber, '0.0.0.0', () => {
-    console.log(`[Employee Database Studio] Full-Stack Enterprise Server listening on http://0.0.0.0:${portNumber}`);
-    // Run database schema/bootstrap initialization after server binds so transient or misconfigured DB never prevents server startup
-    ensureDatabaseInitialized().catch(err => {
-      console.error('[Employee Database Studio DB] Deferred startup initialization error:', err?.message || err);
-    });
+    console.log(`[Employee Database Studio] Stateless Google Workspace Server listening on http://0.0.0.0:${portNumber}`);
   });
 
   httpServer.on('error', (err: NodeJS.ErrnoException) => {
     if (err.code === 'EADDRINUSE') {
-      console.error(`[Employee Database Studio] Port ${portNumber} is already in use (${err.message}). Shutting down cleanly.`);
+      console.error(`[Employee Database Studio] Port ${portNumber} is already in use (${err.message}).`);
     } else {
       console.error('[Employee Database Studio] HTTP server error:', err?.message || err);
     }
@@ -212,7 +170,6 @@ async function startServer() {
         process.exit(0);
       }
     });
-    // Force exit if connections hang during restart
     setTimeout(() => process.exit(0), 3000).unref();
   };
 
@@ -220,17 +177,16 @@ async function startServer() {
   process.once('SIGINT', () => shutdown('SIGINT'));
 }
 
-// Only start the standalone HTTP server when executed directly via `tsx server.ts` / `node server.js`
 const isDirectExecution =
   process.env.VERCEL !== '1' &&
   process.env.NODE_ENV !== 'test' &&
   Boolean(process.argv[1] && /(?:^|[\\/])server\.(?:ts|js|mjs|cjs)$/.test(process.argv[1]));
 
 if (isDirectExecution) {
-  startServer().catch(err => {
+  startServer().catch((err) => {
     console.error('[Employee Database Studio] Server failed to start:', err?.message || err);
   });
 }
 
-export { app, ensureDatabaseInitialized };
+export { app };
 export default app;

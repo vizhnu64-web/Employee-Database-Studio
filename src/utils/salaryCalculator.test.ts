@@ -152,4 +152,64 @@ test('TEST 8: Employer ESI calculation test (CTC 55008, Employer PF 3000, Employ
   assert.equal(result.calculatedNet, 45074);
 });
 
+test('TEST 9: Section 12 Mandatory Payroll Example (Basic 20000, HRA 8000, Special 5000, Other 2000, Employer PF 1800, Employer ESI 500 -> CTC 35000, Gross 32700, Deductions 4100, Net 28600)', () => {
+  const result = calculateSalary({
+    basicSalary: 20000,
+    hra: 8000,
+    specialAllowance: 5000,
+    otherAllowances: 2000,
+    employerPf: 1800,
+    employerEsi: 500,
+    employeePf: 1800,
+    employeeEsi: 150,
+    professionalTax: 200,
+    loanDeductions: 500,
+    lateDeductions: 100,
+    tds: 250,
+    otherDeductions: 100,
+    lopAmount: 1000,
+  });
+
+  assert.equal(result.ctc, 35000);
+  assert.equal(result.componentSum4, 35000);
+  assert.equal(result.ctcMismatch, false);
+  assert.equal(result.grossEarnings, 32700);
+  assert.equal(result.calculatedGross, 32700);
+  assert.equal(result.totalDeductions, 4100);
+  assert.equal(result.calculatedDeductions, 4100);
+  assert.equal(result.netSalary, 28600);
+  assert.equal(result.calculatedNet, 28600);
+});
+
+test('TEST 10: CTC mismatch detection preserves explicit CTC without mutating values', () => {
+  const result = calculateSalary({
+    ctc: 40000,
+    basic: 20000,
+    hra: 8000,
+    specialAllowance: 5000,
+    otherAllowances: 2000,
+    employerPf: 1800,
+    employerEsi: 500,
+  });
+
+  assert.equal(result.ctc, 40000);
+  assert.equal(result.componentSum4, 35000);
+  assert.equal(result.ctcMismatch, true);
+  assert.equal(result.grossEarnings, 37700);
+});
+
+test('TEST 11: Floating point precision & large salary figures remain exact', () => {
+  const result = calculateSalary({
+    ctc: 1250450.75,
+    employerPf: 12000.25,
+    employerEsi: 0,
+    employeePf: 12000.25,
+    professionalTax: 200.5,
+    tds: 150000.0,
+  });
+
+  assert.equal(result.calculatedGross, 1238450.5);
+  assert.equal(result.calculatedDeductions, 162200.75);
+  assert.equal(result.calculatedNet, 1076249.75);
+});
 

@@ -1,26 +1,16 @@
-export interface AuthUser {
+import {
+  getAccessToken,
+  getWorkspaceLinks,
+  markGoogleSessionExpired,
+} from './googleAuthClient';
+
+export interface WorkspaceUser {
   id: number;
   companyId: number;
   username: string;
   fullName: string;
   email: string;
   role: 'admin' | 'hr' | 'payroll' | 'readonly';
-  employeeId?: string | null;
-  mustChangePassword?: boolean;
-}
-
-export interface ManagedUser {
-  id: number;
-  username: string;
-  fullName: string;
-  email: string;
-  role: 'admin' | 'hr' | 'payroll' | 'readonly';
-  status: 'Active' | 'Inactive';
-  isActive: boolean;
-  employeeId?: string;
-  mustChangePassword?: boolean;
-  lastLogin: string;
-  createdAt?: string;
 }
 
 class ApiClient {
@@ -33,23 +23,14 @@ class ApiClient {
     };
   }
 
-  private clearLocalSession() {
-    if (typeof localStorage !== 'undefined') {
-      localStorage.removeItem('peopledesk_auth_token');
-      localStorage.removeItem('auth_token');
-      localStorage.removeItem('peopledesk_user');
-    }
-    if (typeof sessionStorage !== 'undefined') {
-      sessionStorage.removeItem('auth_token');
-    }
-  }
-
   private notifyUnauthorized() {
-    this.clearLocalSession();
-    this.unauthorizedListeners.forEach(cb => {
+    markGoogleSessionExpired();
+    this.unauthorizedListeners.forEach((cb) => {
       try {
         cb();
-      } catch {}
+      } catch {
+        // Ignore listener errors
+      }
     });
   }
 
@@ -67,11 +48,8 @@ class ApiClient {
     const configured = localStorage.getItem('peopledesk_server_url');
     if (configured && configured.trim()) {
       const clean = configured.trim().replace(/\/+$/, '');
-
-      // Mixed Content safety: If running under HTTPS, browsers block HTTP requests to LAN IPs
       if (typeof window !== 'undefined' && window.location && window.location.protocol === 'https:') {
         if (clean.startsWith('http://') && !clean.includes('localhost') && !clean.includes('127.0.0.1')) {
-          console.warn(`[ApiClient] Configured server URL "${clean}" uses insecure HTTP on HTTPS origin. Falling back to default origin: ${defaultUrl}`);
           return defaultUrl;
         }
       }
@@ -96,83 +74,86 @@ class ApiClient {
     }
   }
 
+  // Strictly returns the short-lived in-memory Google OAuth access token.
+  // Never reads from localStorage, sessionStorage, or IndexedDB.
   getToken(): string | null {
-    if (typeof localStorage === 'undefined') return null;
-    return localStorage.getItem('peopledesk_auth_token') || localStorage.getItem('auth_token') || (typeof sessionStorage !== 'undefined' ? sessionStorage.getItem('auth_token') : null);
+    return getAccessToken();
   }
 
-  getCurrentUser(): AuthUser | null {
-    if (typeof localStorage === 'undefined') return null;
-    try {
-      const u = localStorage.getItem('peopledesk_user');
-      return u ? JSON.parse(u) : null;
-    } catch {
-      return null;
-    }
-  }
-
-  async request(endpoint: string, options: RequestInit = {}): Promise<any> {
+  getWorkspaceHeaders(includeContentType = false): Record<string, string> {
+    const headers: Record<string, string> = includeContentType
+      ? { 'Content-Type': 'application/json' }
+      : {};
     const token = this.getToken();
-    const baseUrl = this.getServerUrl();
-    const defaultUrl = this.getDefaultServerUrl();
-    const headers: Record<string, string> = {
-      'Content-Type': 'application/json',
-      ...(options.headers as Record<string, string> || {})
-    };
-
     if (token) {
       headers['Authorization'] = `Bearer ${token}`;
     }
+    const links = getWorkspaceLinks();
+    if (links.spreadsheetId) {
+      headers['X-Spreadsheet-Id'] = links.spreadsheetId;
+    }
+    if (links.driveRootFolderId) {
+      headers['X-Drive-Folder-Id'] = links.driveRootFolderId;
+    }
+    return headers;
+  }
+
+  async request(endpoint: string, options: RequestInit = {}): Promise<any> {
+    const baseUrl = this.getServerUrl();
+    const defaultUrl = this.getDefaultServerUrl();
+    const isFormData = typeof FormData !== 'undefined' && options.body instanceof FormData;
+
+    const headers: Record<string, string> = {
+      ...this.getWorkspaceHeaders(!isFormData),
+      ...((options.headers as Record<string, string>) || {}),
+    };
 
     try {
       const response = await fetch(`${baseUrl}${endpoint}`, {
         ...options,
-        headers
+        headers,
       });
 
       const data = await response.json().catch(() => ({}));
 
       if (!response.ok) {
-        if (
-          response.status === 401 &&
-          !endpoint.startsWith('/auth/login') &&
-          !endpoint.startsWith('/auth/register-admin') &&
-          !endpoint.startsWith('/auth/change-password') &&
-          !endpoint.startsWith('/auth/logout')
-        ) {
+        if (response.status === 401 && data?.code === 'GOOGLE_TOKEN_EXPIRED') {
           this.notifyUnauthorized();
         }
 
         const errorMsg = data.error || `Server error (${response.status})`;
         const err = new Error(errorMsg);
         (err as any).status = response.status;
+        (err as any).code = data?.code;
         throw err;
       }
       return data;
     } catch (err: any) {
-      const isNetworkFail = err.name === 'TypeError' || err.message?.includes('Failed to fetch') || err.message?.includes('NetworkError');
+      const isNetworkFail =
+        err.name === 'TypeError' ||
+        err.message?.includes('Failed to fetch') ||
+        err.message?.includes('NetworkError');
 
-      // Auto-fallback: if custom server URL failed and is different from default server, attempt fallback
       if (isNetworkFail && baseUrl !== defaultUrl) {
         try {
-          console.warn(`[ApiClient] Server at "${baseUrl}" is unreachable. Attempting auto-healing fallback to "${defaultUrl}"...`);
           const fallbackRes = await fetch(`${defaultUrl}${endpoint}`, {
             ...options,
-            headers
+            headers,
           });
           const fallbackData = await fallbackRes.json().catch(() => ({}));
           if (fallbackRes.ok) {
-            console.info(`[ApiClient] Auto-fallback succeeded! Healing server setting to default.`);
             this.resetServerUrl();
             return fallbackData;
           }
         } catch {
-          // If fallback also fails, proceed to raise network error
+          // Proceed to network error below
         }
       }
 
       if (isNetworkFail) {
-        const networkErr = new Error(`Cannot connect to Employee Database Studio server at "${baseUrl}". Please verify the server is running and accessible on the local network.`);
+        const networkErr = new Error(
+          `Cannot connect to Employee Database Studio server at "${baseUrl}". Please verify the server is running.`
+        );
         (networkErr as any).isNetworkError = true;
         (networkErr as any).configuredUrl = baseUrl;
         (networkErr as any).defaultUrl = defaultUrl;
@@ -180,132 +161,6 @@ class ApiClient {
       }
       throw err;
     }
-  }
-
-  async login(username: string, password: string): Promise<{ success: boolean; token: string; user: AuthUser }> {
-    const res = await this.request('/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ username, password })
-    });
-    if (res.success && res.token && typeof localStorage !== 'undefined') {
-      localStorage.setItem('peopledesk_auth_token', res.token);
-      localStorage.setItem('auth_token', res.token);
-      localStorage.setItem('peopledesk_user', JSON.stringify(res.user));
-    }
-    return res;
-  }
-
-  async getAdminSetupStatus(): Promise<{
-    success: boolean;
-    hasAdminAccount: boolean;
-    requiresAuthorization: boolean;
-    setupKeyConfigured: boolean;
-  }> {
-    return await this.request('/auth/admin-setup-status');
-  }
-
-  async registerAdminAccount(payload: {
-    fullName: string;
-    username: string;
-    email?: string;
-    password: string;
-    authorizingUsername?: string;
-    authorizingPassword?: string;
-    adminSetupKey?: string;
-  }): Promise<{ success: boolean; token: string; user: AuthUser; message: string }> {
-    const res = await this.request('/auth/register-admin', {
-      method: 'POST',
-      body: JSON.stringify(payload)
-    });
-    if (res.success && res.token && typeof localStorage !== 'undefined') {
-      localStorage.setItem('peopledesk_auth_token', res.token);
-      localStorage.setItem('auth_token', res.token);
-      localStorage.setItem('peopledesk_user', JSON.stringify(res.user));
-    }
-    return res;
-  }
-
-  async verifyToken(): Promise<{ success: boolean; user: AuthUser }> {
-    try {
-      const res = await this.request('/auth/verify');
-      if (res.success && res.user) {
-        if (typeof localStorage !== 'undefined') {
-          localStorage.setItem('peopledesk_user', JSON.stringify(res.user));
-        }
-        return res;
-      }
-      throw new Error('Invalid verification response');
-    } catch (err) {
-      this.clearLocalSession();
-      throw err;
-    }
-  }
-
-  async changePassword(currentPassword: string, newPassword: string): Promise<{ success: boolean; message: string }> {
-    return await this.request('/auth/change-password', {
-      method: 'POST',
-      body: JSON.stringify({ currentPassword, newPassword })
-    });
-  }
-
-  async getUsers(): Promise<ManagedUser[]> {
-    const res = await this.request('/auth/users');
-    return res.users || [];
-  }
-
-  async createUser(userData: {
-    username: string;
-    fullName: string;
-    email?: string;
-    role: string;
-    password: string;
-    employeeId?: string;
-  }): Promise<{ success: boolean; user: ManagedUser; message: string }> {
-    return await this.request('/auth/users', {
-      method: 'POST',
-      body: JSON.stringify(userData)
-    });
-  }
-
-  async updateUser(id: number, userData: {
-    fullName?: string;
-    email?: string;
-    role?: string;
-    isActive?: boolean;
-    employeeId?: string;
-  }): Promise<{ success: boolean; message: string }> {
-    return await this.request(`/auth/users/${id}`, {
-      method: 'PUT',
-      body: JSON.stringify(userData)
-    });
-  }
-
-  async deleteUser(id: number): Promise<{ success: boolean; message: string }> {
-    return await this.request(`/auth/users/${id}`, {
-      method: 'DELETE'
-    });
-  }
-
-  async adminResetPassword(userId: number, newPassword: string): Promise<{ success: boolean; message: string }> {
-    return await this.request('/auth/admin-reset-password', {
-      method: 'POST',
-      body: JSON.stringify({ userId, newPassword })
-    });
-  }
-
-  async getAuditLogs(): Promise<any[]> {
-    const res = await this.request('/auth/audit-logs');
-    return res.logs || [];
-  }
-
-  logout() {
-    const token = this.getToken();
-    if (token) {
-      try {
-        this.request('/auth/logout', { method: 'POST' }).catch(() => {});
-      } catch {}
-    }
-    this.clearLocalSession();
   }
 
   async getHealth(): Promise<any> {
@@ -319,7 +174,18 @@ class ApiClient {
   async saveSettings(settings: any): Promise<any> {
     return await this.request('/settings', {
       method: 'PUT',
-      body: JSON.stringify(settings)
+      body: JSON.stringify(settings),
+    });
+  }
+
+  async getLayoutSettings(): Promise<any> {
+    return await this.request('/settings/layout');
+  }
+
+  async saveLayoutSettings(layoutSettings: any): Promise<any> {
+    return await this.request('/settings/layout', {
+      method: 'PUT',
+      body: JSON.stringify({ layoutSettings }),
     });
   }
 
@@ -329,22 +195,15 @@ class ApiClient {
   }
 
   async saveEmployee(employee: any): Promise<any> {
-    if (employee.id && !isNaN(Number(employee.id))) {
-      return await this.request(`/employees/${employee.id}`, {
-        method: 'PUT',
-        body: JSON.stringify(employee)
-      });
-    } else {
-      return await this.request('/employees', {
-        method: 'POST',
-        body: JSON.stringify(employee)
-      });
-    }
+    return await this.request('/employees', {
+      method: 'POST',
+      body: JSON.stringify(employee),
+    });
   }
 
   async deleteEmployee(id: string): Promise<any> {
-    return await this.request(`/employees/${id}`, {
-      method: 'DELETE'
+    return await this.request(`/employees/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
     });
   }
 }

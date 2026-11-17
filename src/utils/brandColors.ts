@@ -110,28 +110,28 @@ export interface BrandThemeTokens {
 }
 
 export const DEFAULT_BRAND_COLORS: BrandColors = {
-  primary: '#1e3a8a',    // Enterprise Navy
-  secondary: '#475569',  // Slate
-  accent: '#d97706',     // Amber
+  primary: '#CB1417',    // Vivid Enterprise Red
+  secondary: '#18181B',  // Deep Charcoal
+  accent: '#ED1F24',     // Bright Red Highlight
   buttons: {
     customButtonsEnabled: false,
-    primaryBg: '#1e3a8a',
+    primaryBg: '#CB1417',
     primaryText: '#FFFFFF',
-    primaryHover: '#172554',
-    primaryBorder: '#1e3a8a',
-    secondaryBg: '#475569',
+    primaryHover: '#A60F12',
+    primaryBorder: '#CB1417',
+    secondaryBg: '#18181B',
     secondaryText: '#FFFFFF',
-    secondaryHover: '#334155',
-    secondaryBorder: '#475569',
+    secondaryHover: '#27272A',
+    secondaryBorder: '#27272A',
     dangerBg: '#dc2626',
     dangerText: '#FFFFFF',
     dangerHover: '#b91c1c',
     successBg: '#16a34a',
     successText: '#FFFFFF',
     outlineBg: 'transparent',
-    outlineText: '#1e3a8a',
-    outlineBorder: '#1e3a8a',
-    outlineHover: '#1e3a8a15'
+    outlineText: '#CB1417',
+    outlineBorder: '#CB1417',
+    outlineHover: '#CB141715'
   },
   surfaces: {
     customSurfacesEnabled: false
@@ -146,14 +146,14 @@ export interface PresetPalette {
 }
 
 export const PRESET_BRAND_PALETTES: PresetPalette[] = [
+  { name: 'Enterprise Red', primary: '#CB1417', secondary: '#18181B', accent: '#ED1F24' },
   { name: 'Enterprise Blue', primary: '#1e3a8a', secondary: '#334155', accent: '#0284c7' },
-  { name: 'Royal Indigo', primary: '#312e81', secondary: '#4338ca', accent: '#6366f1' },
+  { name: 'Crimson Corporate', primary: '#881337', secondary: '#27272A', accent: '#e11d48' },
+  { name: 'Slate Executive', primary: '#0f172a', secondary: '#64748b', accent: '#3b82f6' },
   { name: 'Modern Teal', primary: '#115e59', secondary: '#334155', accent: '#0d9488' },
   { name: 'Emerald Forest', primary: '#065f46', secondary: '#374151', accent: '#059669' },
-  { name: 'Slate Executive', primary: '#0f172a', secondary: '#64748b', accent: '#3b82f6' },
-  { name: 'Crimson Corporate', primary: '#881337', secondary: '#475569', accent: '#e11d48' },
-  { name: 'Aubergine Luxury', primary: '#4c1d95', secondary: '#581c87', accent: '#8b5cf6' },
-  { name: 'Warm Amber', primary: '#78350f', secondary: '#52525b', accent: '#f59e0b' }
+  { name: 'Royal Indigo', primary: '#312e81', secondary: '#4338ca', accent: '#6366f1' },
+  { name: 'Aubergine Luxury', primary: '#4c1d95', secondary: '#581c87', accent: '#8b5cf6' }
 ];
 
 /**
@@ -460,4 +460,30 @@ export function applyBrandCssVariables(colors?: Partial<BrandColors>, isDark = t
   for (const [key, value] of Object.entries(vars)) {
     root.style.setProperty(key, value);
   }
+}
+
+export function extractBrandColorsFromSettings(settings?: {
+  themeColor?: string;
+  secondaryColor?: string;
+  accentColor?: string;
+  buttonColors?: ButtonColorCustomization;
+  surfaceColors?: ApplicationSurfaces;
+  brandColors?: Partial<BrandColors>;
+}): Partial<BrandColors> {
+  return {
+    ...(settings?.brandColors || {}),
+    primary: settings?.brandColors?.primary || settings?.themeColor || DEFAULT_BRAND_COLORS.primary,
+    secondary: settings?.brandColors?.secondary || settings?.secondaryColor || DEFAULT_BRAND_COLORS.secondary,
+    accent: settings?.brandColors?.accent || settings?.accentColor || DEFAULT_BRAND_COLORS.accent,
+    buttons: settings?.brandColors?.buttons || settings?.buttonColors,
+    surfaces: settings?.brandColors?.surfaces || settings?.surfaceColors,
+  };
+}
+
+export function applyGlobalBrandColors(colors?: Partial<BrandColors>, isDark?: boolean): void {
+  const dark =
+    typeof isDark === 'boolean'
+      ? isDark
+      : typeof document !== 'undefined' && document.documentElement.classList.contains('dark');
+  applyBrandCssVariables(colors, dark);
 }

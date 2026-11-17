@@ -233,7 +233,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
       {/* Discrepancy warning banner if any review items */}
       {reviewRequired > 0 && (
         <div
-          className={`border rounded-xl p-4 flex items-center justify-between transition ${
+          className={`border rounded-xl p-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 transition ${
             isDark
               ? 'bg-[#200708] border-[#57151A] text-[#FCA5A5]'
               : 'bg-[#FEF2F2] border-[#FECACA] text-[#991B1B]'
@@ -251,11 +251,11 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
           <button
-            onClick={() => onNavigate('validation')}
-            className="flex items-center space-x-1.5 px-3 py-1.5 btn-primary rounded text-xs font-semibold transition cursor-pointer"
+            onClick={() => onNavigate('records')}
+            className="flex items-center space-x-1.5 px-3 py-1.5 btn-primary rounded text-xs font-semibold transition cursor-pointer whitespace-nowrap shrink-0"
           >
             <span>Audit & Resolve</span>
-            <ArrowRight className="w-3.5 h-3.5" />
+            <ArrowRight className="w-3.5 h-3.5 shrink-0" />
           </button>
         </div>
       )}
@@ -269,7 +269,7 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         <h3 className={`text-sm font-semibold mb-4 ${isDark ? 'text-white' : 'text-black'}`}>
           Payslip Generation Pipeline
         </h3>
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
           {/* Step 1: Import */}
           <div
             onClick={() => onNavigate('import')}
@@ -293,9 +293,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Step 2: Validation */}
+          {/* Step 2: Payroll Processing */}
           <div
-            onClick={() => onNavigate('validation')}
+            onClick={() => onNavigate('records')}
             className={`p-4 rounded-lg border transition cursor-pointer group ${
               isDark
                 ? 'bg-[#141416] border-[#26262B] hover:border-brand-primary/60 hover:bg-[#1A1A1E]'
@@ -339,9 +339,9 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
             </div>
           </div>
 
-          {/* Step 4: Export */}
+          {/* Step 4: Generator & Export */}
           <div
-            onClick={() => onNavigate('export')}
+            onClick={() => onNavigate('generator')}
             className={`p-4 rounded-lg border transition cursor-pointer group ${
               isDark
                 ? 'bg-[#141416] border-[#26262B] hover:border-brand-primary/60 hover:bg-[#1A1A1E]'
@@ -416,25 +416,25 @@ export const DashboardView: React.FC<DashboardViewProps> = ({
         >
           <h3 className={`text-xs font-semibold uppercase tracking-wider mb-3 flex items-center space-x-2 ${isDark ? 'text-white' : 'text-black'}`}>
             <ShieldCheck className="w-4 h-4 text-[#CB1417]" />
-            <span>Enterprise Cloud Architecture & Security</span>
+            <span>Workspace Cloud & Storage Architecture</span>
           </h3>
           <div className="space-y-2.5 text-xs">
             <div className={`p-2.5 rounded border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#F9F9FB] border-[#E4E4E7]'}`}>
-              <p className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Enterprise Cloud & Browser Security</p>
+              <p className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Google Workspace &amp; Email Channels</p>
               <p className={`text-[11px] mt-0.5 ${isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}>
-                Strict role-based access control, cryptographic password hashing, and authenticated REST APIs protect all employee and payroll records.
+                Google Identity Services in-memory OAuth powers Google Sheets 10-tab tables, private Drive PDF archiving, Gmail API, and independent Company SMTP delivery.
               </p>
             </div>
             <div className={`p-2.5 rounded border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#F9F9FB] border-[#E4E4E7]'}`}>
-              <p className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Hosted PostgreSQL & Client Persistence</p>
+              <p className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Sheets Primary &amp; Local Draft Persistence</p>
               <p className="text-[11px] mt-0.5 font-mono text-[#CB1417]">
-                Cloud PostgreSQL Database • IndexedDB Local Cache
+                Google Sheets Primary • Private Google Drive • Temporary Local Drafts
               </p>
             </div>
             <div className={`p-2.5 rounded border ${isDark ? 'bg-[#141416] border-[#222226]' : 'bg-[#F9F9FB] border-[#E4E4E7]'}`}>
-              <p className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>Vector PDF Rendering</p>
+              <p className={`font-semibold ${isDark ? 'text-white' : 'text-black'}`}>1:1 Vector PDF Rendering</p>
               <p className={`text-[11px] mt-0.5 ${isDark ? 'text-[#A1A1AA]' : 'text-[#71717A]'}`}>
-                Direct client-side jsPDF rendering generates sharp A4 print-ready payslips in your company's custom brand colors with instant browser downloads.
+                Client-side jsPDF rendering generates print-ready A4 portrait & landscape payslips honoring your Layout Customizer settings.
               </p>
             </div>
           </div>

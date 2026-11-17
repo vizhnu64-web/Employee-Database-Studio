@@ -79,6 +79,7 @@ export const PayslipManualEditorModal: React.FC<PayslipManualEditorModalProps> =
   const [revisionHistory, setRevisionHistory] = useState<any[]>([]);
   const [isSaving, setIsSaving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [errorBanner, setErrorBanner] = useState<string | null>(null);
 
   // Fetch revisions for this payslip
   const payslipRecordId = `${employee.employeeId.trim()}_${month}_${year}`.toLowerCase();
@@ -120,9 +121,10 @@ export const PayslipManualEditorModal: React.FC<PayslipManualEditorModalProps> =
 
   const handleAddAdjustment = () => {
     if (!newAdjLabel.trim() || !newAdjAmount) {
-      alert('Please specify an adjustment label and amount.');
+      setErrorBanner('Please specify an adjustment label and amount.');
       return;
     }
+    setErrorBanner(null);
     const item: CustomAdjustment = {
       id: `adj_${Date.now()}`,
       type: newAdjType,
@@ -140,9 +142,10 @@ export const PayslipManualEditorModal: React.FC<PayslipManualEditorModalProps> =
 
   const handleSaveAndRegenerate = async (status: 'draft' | 'approved' = 'approved') => {
     if (!revisionReason.trim()) {
-      alert('A revision reason is mandatory to edit a generated payslip.');
+      setErrorBanner('A revision reason is mandatory to edit a generated payslip.');
       return;
     }
+    setErrorBanner(null);
 
     setIsSaving(true);
     try {
@@ -203,26 +206,32 @@ export const PayslipManualEditorModal: React.FC<PayslipManualEditorModalProps> =
           employeeId: employee.employeeId,
           month,
           year,
-          newGross: totalEarnings,
-          newDeductions: totalDeductions,
-          newNet: calculatedNet,
-          reason: revisionReason,
-          status,
-          changes: {
+          originalData: {
+            grossEarnings: employee.calculatedGross,
+            totalDeductions: employee.calculatedDeductions,
+            netSalary: employee.calculatedNet
+          },
+          revisedData: {
             ctc,
             employerPf,
             employerEsi,
             lopDays,
             lopDeduction,
-            adjustments
-          }
+            grossEarnings: totalEarnings,
+            totalDeductions,
+            netSalary: calculatedNet
+          },
+          adjustmentEarnings: adjustments.filter(a => a.type === 'earning'),
+          adjustmentDeductions: adjustments.filter(a => a.type === 'deduction'),
+          reason: revisionReason,
+          status: status === 'approved' ? 'Approved' : 'Draft'
         })
       }).catch(() => null);
 
       onSaveUpdatedRecord(updatedEmpRecord, updatedHistoryRecord);
       onClose();
     } catch (err: any) {
-      alert(`Failed to save payslip revision: ${err.message}`);
+      setErrorBanner(`Failed to save payslip revision: ${err.message}`);
     } finally {
       setIsSaving(false);
     }
@@ -236,7 +245,6 @@ export const PayslipManualEditorModal: React.FC<PayslipManualEditorModalProps> =
         {/* Top Header */}
         <div className={`p-4 border-b flex items-center justify-between shrink-0 ${isDark ? 'border-[#222222]' : 'border-[#E4E4E7]'}`}>
           <div className="flex items-center space-x-2">
-            <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse" />
             <h3 className="text-sm font-bold">
               Manual Payslip Revision & Recalculation: {employee.name} ({employee.employeeId})
             </h3>
@@ -257,6 +265,18 @@ export const PayslipManualEditorModal: React.FC<PayslipManualEditorModalProps> =
 
         {/* Scrollable Body */}
         <div className="flex-1 overflow-y-auto p-6 space-y-6 text-xs">
+          {errorBanner && (
+            <div className="p-3 rounded-xl border border-red-500/30 bg-red-500/10 text-red-500 flex items-center justify-between gap-2">
+              <div className="flex items-center space-x-2">
+                <AlertTriangle className="w-4 h-4 shrink-0" />
+                <span>{errorBanner}</span>
+              </div>
+              <button type="button" onClick={() => setErrorBanner(null)} className="underline text-[11px] font-semibold cursor-pointer">
+                Dismiss
+              </button>
+            </div>
+          )}
+
           {/* Formula Verification Notice */}
           <div className="p-3.5 rounded-xl border border-blue-500/20 bg-blue-500/10 text-blue-400 flex items-center space-x-2">
             <Calculator className="w-4 h-4 shrink-0" />

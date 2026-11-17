@@ -74,6 +74,7 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
   const [previewDoc, setPreviewDoc] = useState<EmployeeDocument | null>(null);
   const [showUploadModal, setShowUploadModal] = useState(false);
   const [editingDoc, setEditingDoc] = useState<EmployeeDocument | null>(null);
+  const [docPendingDelete, setDocPendingDelete] = useState<EmployeeDocument | null>(null);
 
   // Upload Form State
   const [formTitle, setFormTitle] = useState('');
@@ -161,29 +162,26 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
         fileSizeBytes = selectedFile.size;
         mimeType = selectedFile.type || 'application/octet-stream';
 
-        // Direct upload to Supabase Storage via backend API
-        try {
-          const token = apiClient.getToken();
-          const formData = new FormData();
-          formData.append('file', selectedFile);
-          formData.append('employeeId', employee.employeeId);
-          formData.append('category', formCategory);
-          formData.append('title', formTitle.trim());
+        // Upload directly to Google Drive when signed in with Google
+        if (apiClient.getToken()) {
+          try {
+            const formData = new FormData();
+            formData.append('file', selectedFile);
+            formData.append('employeeId', employee.employeeId);
+            formData.append('category', formCategory);
+            formData.append('title', formTitle.trim());
 
-          const res = await fetch('/api/documents/upload', {
-            method: 'POST',
-            headers: token ? { Authorization: `Bearer ${token}` } : {},
-            body: formData
-          });
+            const data = await apiClient.request('/documents/upload', {
+              method: 'POST',
+              body: formData
+            });
 
-          if (res.ok) {
-            const data = await res.json();
-            if (data.success && data.document) {
+            if (data?.success && data.document) {
               storagePath = data.document.storagePath;
             }
+          } catch (uploadErr) {
+            console.warn('[Drive] Upload skipped or fell back to local draft:', uploadErr);
           }
-        } catch (uploadErr) {
-          console.warn('[Storage] Backend upload attempt fell back to local cache:', uploadErr);
         }
 
         const arrayBuffer = await selectedFile.arrayBuffer();
@@ -239,19 +237,25 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
     await onSaveDocument(updated);
   };
 
-  const handleDelete = async (doc: EmployeeDocument) => {
-    if (confirm(`Are you sure you want to delete "${doc.title}"? This cannot be undone.`)) {
+  const handleDelete = (doc: EmployeeDocument) => {
+    setDocPendingDelete(doc);
+  };
+
+  const executeDeleteDocument = async () => {
+    if (!docPendingDelete) return;
+    const doc = docPendingDelete;
+    setDocPendingDelete(null);
+    if (apiClient.getToken() && doc.storagePath?.startsWith('drive:')) {
       try {
-        const token = apiClient.getToken();
-        await fetch(`/api/documents/${doc.id}`, {
+        const driveId = doc.storagePath.replace(/^drive:/, '') || doc.id;
+        await apiClient.request(`/documents/${encodeURIComponent(driveId)}`, {
           method: 'DELETE',
-          headers: token ? { Authorization: `Bearer ${token}` } : {}
         });
       } catch (err) {
-        console.warn('Backend document delete error:', err);
+        console.warn('[Drive] Document delete error:', err);
       }
-      await onDeleteDocument(doc.id);
     }
+    await onDeleteDocument(doc.id);
   };
 
   return (
@@ -561,8 +565,8 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
                       isDark ? 'bg-[#141416] border-[#27272A] text-white' : 'bg-[#FAFAFC] border-[#E4E4E7] text-black'
                     }`}
                   >
-                    {DOCUMENT_TYPES.map(docType => (
-                      <option key={docType} value={docType}>{docType}</option>
+                    {CATEGORIES.map(cat => (
+                      <option key={cat} value={cat}>{cat}</option>
                     ))}
                   </select>
                 </div>
@@ -656,6 +660,43 @@ export const EmployeeDocumentsSection: React.FC<EmployeeDocumentsSectionProps> =
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Confirmation Modal */}
+      {docPendingDelete && (
+        <div className="fixed inset-0 z-50 bg-black/75 backdrop-blur-xs flex items-center justify-center p-4">
+          <div
+            className={`w-full max-w-sm rounded-2xl border p-6 space-y-4 ${
+              isDark ? 'bg-[#0D0D0E] border-[#222222] text-white' : 'bg-white border-[#E4E4E7] text-black'
+            }`}
+          >
+            <div className="flex items-center space-x-2 text-[#CB1417]">
+              <AlertTriangle className="w-5 h-5 shrink-0" />
+              <h3 className="text-sm font-bold">Delete Employee Document?</h3>
+            </div>
+            <p className={`text-xs ${isDark ? 'text-[#A1A1AA]' : 'text-[#52525B]'}`}>
+              Are you sure you want to delete <strong className={isDark ? 'text-white' : 'text-black'}>{docPendingDelete.title}</strong>? This action cannot be undone.
+            </p>
+            <div className="flex justify-end space-x-2 pt-2 border-t dark:border-zinc-800 border-zinc-200">
+              <button
+                type="button"
+                onClick={() => setDocPendingDelete(null)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold border cursor-pointer ${
+                  isDark ? 'border-zinc-800 hover:bg-zinc-800 text-zinc-300' : 'border-zinc-300 hover:bg-zinc-100 text-zinc-700'
+                }`}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={executeDeleteDocument}
+                className="px-3.5 py-1.5 bg-[#CB1417] hover:bg-[#ED1F24] text-white rounded-lg text-xs font-bold cursor-pointer"
+              >
+                Confirm Delete
+              </button>
+            </div>
           </div>
         </div>
       )}

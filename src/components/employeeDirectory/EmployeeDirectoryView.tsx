@@ -160,7 +160,7 @@ export const EmployeeDirectoryView: React.FC<EmployeeDirectoryViewProps> = ({
 
   const handleSyncAllFilteredToPayroll = () => {
     if (filteredEmployees.length === 0) {
-      alert('No employee records in current view to sync.');
+      showToast('No employee records in current view to sync.');
       return;
     }
     if (onSyncToPayrollBatch) {
